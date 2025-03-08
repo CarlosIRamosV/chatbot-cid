@@ -1,0 +1,158 @@
+---
+import { GET } from "@api/settings/verify_token";
+
+let data = "";
+let error = "";
+
+try {
+  const response = await GET(Astro);
+  if (response.ok) {
+    const jsonData = await response.json();
+    data = jsonData.verificationToken || "";
+  } else {
+    error = "Failed to fetch verification token";
+    console.error(error);
+  }
+} catch (err) {
+  error = "Error fetching verification token";
+  console.error(`${error}:`, err);
+}
+---
+
+<div class="bg-white rounded-lg shadow p-6">
+  <h2 class="text-2xl font-bold text-gray-800 mb-2">Verification Token</h2>
+  <p class="text-gray-600 mb-6">Update the Facebook verification token.</p>
+
+  {
+    error && (
+      <div
+        class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"
+        role="alert"
+      >
+        <p>{error}</p>
+      </div>
+    )
+  }
+
+  <form class="space-y-4">
+    <div class="flex flex-col">
+      <label for="verification-token" class="mb-1 text-sm text-gray-700"
+        >Verification Token</label
+      >
+      <input
+        id="verification-token"
+        type="text"
+        placeholder="Enter verification token"
+        value={data}
+        required
+        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+      />
+    </div>
+    <div class="flex justify-end">
+      <button
+        is="verification-token-button"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+            clip-rule="evenodd"></path>
+        </svg>
+        Update Token
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  class UpdateButton extends HTMLButtonElement {
+    constructor() {
+      super();
+      this.addEventListener("click", this.handleUpdateVerificationToken);
+    }
+
+    async handleUpdateVerificationToken(e: Event) {
+      e.preventDefault();
+
+      const form = this.closest("form");
+      if (!form) return;
+
+      const input = form.querySelector("input");
+      if (!input || !input.value.trim()) {
+        this.showAlert("Please enter a valid verification token", "error");
+        return;
+      }
+
+      const verificationToken: string = input.value.trim();
+
+      // Show loading state
+      const originalText = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Updating...
+      `;
+
+      try {
+        const res = await fetch(`/api/settings/verify_token`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ verificationToken }),
+        });
+
+        if (res.ok) {
+          this.showAlert("Verification token updated successfully", "success");
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          const errorMessage =
+            errorData.message || "Failed to update verification token";
+          this.showAlert(errorMessage, "error");
+        }
+      } catch (error) {
+        console.error("Error updating verification token:", error);
+        this.showAlert("Network error while updating token", "error");
+      } finally {
+        // Restore button state
+        this.innerHTML = originalText;
+        this.disabled = false;
+      }
+    }
+
+    showAlert(message: string, type = "success") {
+      // Remove any existing alerts
+      const existingAlert = document.querySelector(".alert-message");
+      if (existingAlert) {
+        existingAlert.remove();
+      }
+
+      // Create new alert element
+      const alertElement = document.createElement("div");
+      alertElement.className = `alert-message fixed top-4 right-4 z-50 px-6 py-3 rounded-md shadow-lg transform transition-all duration-500 ${
+        type === "success" ? "bg-green-500" : "bg-red-500"
+      } text-white`;
+      alertElement.textContent = message;
+      document.body.appendChild(alertElement);
+
+      // Remove after 3 seconds
+      setTimeout(() => {
+        alertElement.classList.add("opacity-0");
+        setTimeout(() => alertElement.remove(), 500);
+      }, 3000);
+    }
+  }
+
+  customElements.define("verification-token-button", UpdateButton, {
+    extends: "button",
+  });
+</script>

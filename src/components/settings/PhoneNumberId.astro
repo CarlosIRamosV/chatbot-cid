@@ -1,0 +1,170 @@
+---
+import { GET } from "@api/settings/phone_number_id";
+
+let data = "";
+let error = "";
+
+try {
+  const response = await GET(Astro);
+  if (response.ok) {
+    const jsonData = await response.json();
+
+    // Handle different response formats
+    if (typeof jsonData === "string") {
+      // Direct string response
+      data = jsonData;
+    } else if (jsonData.hasOwnProperty("phoneNumberId")) {
+      data = jsonData.phoneNumberId;
+    } else if (jsonData.data && jsonData.data.phoneNumberId) {
+      data = jsonData.data.phoneNumberId;
+    } else {
+      console.log("Full response structure:", JSON.stringify(jsonData));
+      error = "Phone Number ID not found in response";
+    }
+  } else {
+    error = "Failed to fetch phone number ID";
+    console.error(error);
+  }
+} catch (err) {
+  error = "Error fetching phone number ID";
+  console.error(`${error}:`, err);
+}
+---
+
+<div class="bg-white rounded-lg shadow p-6">
+  <h2 class="text-2xl font-bold text-gray-800 mb-2">Phone Number ID</h2>
+  <p class="text-gray-600 mb-6">Update the Facebook phone number ID.</p>
+
+  {
+    error && (
+      <div
+        class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"
+        role="alert"
+      >
+        <p>{error}</p>
+      </div>
+    )
+  }
+
+  <form class="space-y-4">
+    <div class="flex flex-col">
+      <label for="phone-number-id" class="mb-1 text-sm text-gray-700"
+        >Facebook Phone Number ID</label
+      >
+      <input
+        id="phone-number-id"
+        type="text"
+        placeholder="Enter your phone number ID"
+        value={data}
+        required
+        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+      />
+    </div>
+    <div class="flex justify-end">
+      <button
+        is="phone-number-id-button"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+            clip-rule="evenodd"></path>
+        </svg>
+        Update ID
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  class UpdateButton extends HTMLButtonElement {
+    constructor() {
+      super();
+      this.addEventListener("click", this.handleUpdatePhoneNumberId);
+    }
+
+    async handleUpdatePhoneNumberId(e: Event) {
+      e.preventDefault();
+
+      const form = this.closest("form");
+      if (!form) return;
+
+      const input = form.querySelector("input");
+      if (!input || !input.value.trim()) {
+        this.showAlert("Please enter a valid phone number ID", "error");
+        return;
+      }
+
+      const phoneNumberId: string = input.value.trim();
+
+      // Show loading state
+      const originalText = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Updating...
+      `;
+
+      try {
+        const res = await fetch(`/api/settings/phone_number_id`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ phoneNumberId }),
+        });
+
+        if (res.ok) {
+          this.showAlert("Phone Number ID updated successfully", "success");
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          const errorMessage =
+            errorData.message || "Failed to update Phone Number ID";
+          this.showAlert(errorMessage, "error");
+        }
+      } catch (error) {
+        console.error("Error updating phone number ID:", error);
+        this.showAlert("Network error while updating ID", "error");
+      } finally {
+        // Restore button state
+        this.innerHTML = originalText;
+        this.disabled = false;
+      }
+    }
+
+    showAlert(message: string, type = "success") {
+      // Remove any existing alerts
+      const existingAlert = document.querySelector(".alert-message");
+      if (existingAlert) {
+        existingAlert.remove();
+      }
+
+      // Create new alert element
+      const alertElement = document.createElement("div");
+      alertElement.className = `alert-message fixed top-4 right-4 z-50 px-6 py-3 rounded-md shadow-lg transform transition-all duration-500 ${
+        type === "success" ? "bg-green-500" : "bg-red-500"
+      } text-white`;
+      alertElement.textContent = message;
+      document.body.appendChild(alertElement);
+
+      // Remove after 3 seconds
+      setTimeout(() => {
+        alertElement.classList.add("opacity-0");
+        setTimeout(() => alertElement.remove(), 500);
+      }, 3000);
+    }
+  }
+
+  customElements.define("phone-number-id-button", UpdateButton, {
+    extends: "button",
+  });
+</script>

@@ -1,0 +1,47 @@
+---
+const { pathname } = Astro.url;
+const menuItems = [
+  { name: "Chatbot", link: "/" },
+  { name: "Settings", link: "/settings" },
+  { name: "Sign out", link: "/api/auth/signout" },
+];
+---
+
+<nav
+  class="bg-gradient-to-r from-[#020381] to-[#6A1F1F] via-[#3B1222] text-white p-4 shadow-md"
+>
+  <div class="container mx-auto flex justify-between items-center">
+    <a
+      href="/"
+      class="flex items-center space-x-3 hover:opacity-90 transition-opacity"
+    >
+      <img src="/logo.png" alt="Logo" class="h-16 md:h-20" />
+      <h1 class="text-xl md:text-2xl font-bold">Chatbot CID</h1>
+    </a>
+
+    <ul class="flex items-center space-x-2 md:space-x-6">
+      {
+        menuItems.map((item) => {
+          const isActive =
+            pathname === item.link ||
+            (item.link !== "/" && pathname.startsWith(item.link));
+          return (
+            <li>
+              <a
+                href={item.link}
+                class={`px-3 py-2 rounded-lg text-base md:text-lg transition-all duration-200
+                       ${
+                         isActive
+                           ? "bg-white/10 font-semibold"
+                           : "hover:bg-white/5"
+                       }`}
+              >
+                {item.name}
+              </a>
+            </li>
+          );
+        })
+      }
+    </ul>
+  </div>
+</nav>

@@ -1,0 +1,18 @@
+---
+import SingIn from "@components/SingIn.astro";
+import Layout from "../layouts/Layout.astro";
+import { checkUserAuthentication } from "@utils/auth";
+
+const user = await checkUserAuthentication(Astro.request);
+if (user) {
+  return Astro.redirect("/");
+}
+---
+
+<Layout title="Sign In">
+  <div class="flex items-center justify-center min-h-screen bg-gray-100">
+    <div class="bg-white shadow-md rounded-lg p-6 max-w-md w-full">
+      <SingIn />
+    </div>
+  </div>
+</Layout>

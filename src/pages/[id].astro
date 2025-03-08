@@ -1,0 +1,464 @@
+---
+import Layout from "@layouts/Layout.astro";
+import { checkUserAuthentication } from "@utils/auth.ts";
+import Menu from "@components/Menu.astro";
+import { GET } from "@api/condition/[id]";
+
+const { id } = Astro.params;
+
+interface ButtonData {
+  title: string;
+}
+
+interface ConditionData {
+  text: string;
+  keywords?: string[];
+  buttons: Record<string, ButtonData>;
+}
+
+let data: ConditionData = {
+  text: "",
+  keywords: [],
+  buttons: {},
+};
+
+let pageTitle = "Edit Condition";
+
+try {
+  const user = await checkUserAuthentication(Astro.request);
+  if (!user) {
+    return Astro.redirect("/signin");
+  }
+
+  let response = await GET(Astro);
+
+  if (response.ok) {
+    data = await response.json();
+  } else {
+    console.error("Condition not found");
+    pageTitle = "New Condition"; // Change title for new conditions
+  }
+} catch (error) {
+  return Astro.redirect("/signin");
+}
+---
+
+<Layout title={`${pageTitle} | Chatbot`}>
+  <Menu />
+  <div class="max-w-3xl mx-auto p-6 bg-white shadow-md rounded-lg">
+    <h2 class="text-2xl font-bold mb-6">{pageTitle}</h2>
+
+    <form id="editConditionForm" data-index={id} data-page-title={pageTitle}>
+      <div class="mb-6">
+        <h3 class="text-xl font-semibold mb-4">Message</h3>
+
+        <div class="mb-4">
+          <label
+            for="messageText"
+            class="block text-sm font-medium text-gray-700">Message Text</label
+          >
+          <textarea
+            id="messageText"
+            name="messageText"
+            rows="4"
+            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+            >{data.text}</textarea
+          >
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <h3 class="text-xl font-semibold mb-4">Keywords (Optional)</h3>
+
+        <div id="keywordsSection" class="mb-4">
+          <label class="block text-sm font-medium text-gray-700">Keywords</label
+          >
+          <div id="keywordsContainer" class="space-y-2">
+            {
+              data.keywords?.map((keyword: string) => (
+                <div class="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    name="keywords[]"
+                    value={keyword}
+                    class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                  />
+                  <button type="button" class="remove-btn text-red-500">
+                    ×
+                  </button>
+                </div>
+              ))
+            }
+          </div>
+          <button
+            type="button"
+            id="addKeywordBtn"
+            class="mt-2 text-indigo-600 hover:text-indigo-900"
+            >Add Keyword</button
+          >
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <h3 class="text-xl font-semibold mb-4">Buttons (Maximum 3)</h3>
+
+        <div id="buttonsContainer" class="space-y-4">
+          {
+            Object.entries(data.buttons || {}).map(
+              ([buttonId, buttonData]: [string, ButtonData]) => (
+                <div
+                  class="flex items-start space-x-4 button-row"
+                  data-button-id={buttonId}
+                >
+                  <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-700">
+                      Button ID
+                    </label>
+                    <input
+                      type="text"
+                      name="buttonId[]"
+                      value={buttonId}
+                      readonly
+                      class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 bg-gray-100 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    />
+                  </div>
+                  <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-700">
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      name="buttonTitle[]"
+                      value={buttonData.title}
+                      class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    />
+                  </div>
+                  <div class="flex items-center space-x-2 mt-6">
+                    <a
+                      href={`/${buttonId}`}
+                      class="edit-btn text-blue-600 hover:text-blue-800"
+                    >
+                      Edit
+                    </a>
+                    <button
+                      type="button"
+                      class="remove-btn text-red-500 hover:text-red-700"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ),
+            )
+          }
+        </div>
+        <button
+          type="button"
+          id="addButtonBtn"
+          class="mt-2 text-indigo-600 hover:text-indigo-900">Add Button</button
+        >
+      </div>
+
+      <div class="flex justify-end space-x-4">
+        <a
+          href="/"
+          class="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
+          >Cancel</a
+        >
+        <button
+          type="submit"
+          class="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+          >Save Changes</button
+        >
+      </div>
+    </form>
+  </div>
+</Layout>
+<script>
+  // Script section for handling form interactions
+  document.addEventListener("DOMContentLoaded", () => {
+    // Create removal listener for items
+    // Fixed createRemovalListener function
+    const createRemovalListener = (container: HTMLElement) => {
+      if (!container) return;
+
+      container.addEventListener("click", (e: Event) => {
+        const target = e.target as HTMLElement;
+        if (
+          target.classList.contains("remove-btn") ||
+          target.closest(".remove-btn")
+        ) {
+          // Find the closest parent item to remove
+          const item = target.closest(".button-row") || target.closest(".flex");
+          if (item) {
+            item.remove();
+
+            // Re-enable the add button if we're below the limit
+            if (container.id === "buttonsContainer") {
+              const addButtonBtn = document.getElementById("addButtonBtn");
+              if (
+                addButtonBtn &&
+                container.querySelectorAll(".button-row").length < 3
+              ) {
+                (addButtonBtn as HTMLButtonElement).disabled = false;
+                addButtonBtn.classList.remove(
+                  "opacity-50",
+                  "cursor-not-allowed",
+                );
+              }
+            }
+          }
+        }
+      });
+    };
+
+    // Handle keywords
+    const keywordsContainer = document.getElementById("keywordsContainer");
+    const addKeywordBtn = document.getElementById("addKeywordBtn");
+
+    if (keywordsContainer) {
+      createRemovalListener(keywordsContainer as HTMLElement);
+    }
+
+    if (addKeywordBtn) {
+      addKeywordBtn.addEventListener("click", () => {
+        if (!keywordsContainer) return;
+
+        const newKeyword = document.createElement("div");
+        newKeyword.className = "flex items-center space-x-2";
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.name = "keywords[]";
+        input.placeholder = "Enter keyword";
+        input.className =
+          "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "remove-btn text-red-500";
+        removeBtn.innerHTML = "×";
+
+        newKeyword.appendChild(input);
+        newKeyword.appendChild(removeBtn);
+        keywordsContainer.appendChild(newKeyword);
+      });
+    }
+
+    // Handle buttons
+    const buttonsContainer = document.getElementById("buttonsContainer");
+    const addButtonBtn = document.getElementById("addButtonBtn");
+
+    // Check initial button count and disable add button if needed
+    if (buttonsContainer && addButtonBtn) {
+      const existingButtons = buttonsContainer.querySelectorAll(".button-row");
+      if (existingButtons.length >= 3) {
+        (addButtonBtn as HTMLButtonElement).disabled = true;
+        addButtonBtn.classList.add("opacity-50", "cursor-not-allowed");
+      }
+    }
+
+    if (buttonsContainer) {
+      createRemovalListener(buttonsContainer as HTMLElement);
+    }
+
+    if (addButtonBtn) {
+      addButtonBtn.addEventListener("click", () => {
+        if (!buttonsContainer) return;
+
+        // Check if we already have 3 buttons
+        const existingButtons =
+          buttonsContainer.querySelectorAll(".button-row");
+        if (existingButtons.length >= 3) {
+          alert("Maximum of 3 buttons allowed");
+          return;
+        }
+
+        const newButton = document.createElement("div");
+        newButton.className = "flex items-start space-x-4 button-row";
+
+        // Generate a temporary Firebase-like ID for new buttons
+        const tempId = Date.now().toString();
+        (newButton as HTMLElement).dataset.buttonId = tempId;
+
+        const idDiv = document.createElement("div");
+        idDiv.className = "flex-1";
+
+        const idLabel = document.createElement("label");
+        idLabel.textContent = "Button ID";
+        idLabel.className = "block text-sm font-medium text-gray-700";
+
+        const idInput = document.createElement("input");
+        idInput.type = "text";
+        idInput.name = "buttonId[]";
+        idInput.value = tempId;
+        idInput.className =
+          "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 bg-gray-100 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
+        idInput.readOnly = true;
+
+        idDiv.appendChild(idLabel);
+        idDiv.appendChild(idInput);
+
+        const titleDiv = document.createElement("div");
+        titleDiv.className = "flex-1";
+
+        const titleLabel = document.createElement("label");
+        titleLabel.textContent = "Title";
+        titleLabel.className = "block text-sm font-medium text-gray-700";
+
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.name = "buttonTitle[]";
+        titleInput.placeholder = "Button Title";
+        titleInput.className =
+          "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
+
+        titleDiv.appendChild(titleLabel);
+        titleDiv.appendChild(titleInput);
+
+        // Create action div for holding edit and remove buttons
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "flex items-center space-x-2 mt-6";
+
+        // Create edit button (initially disabled until saved)
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "edit-btn text-blue-600 hover:text-blue-800";
+        editBtn.innerHTML = "Edit";
+        editBtn.disabled = true;
+        editBtn.title = "Save the condition first to enable button editing";
+
+        // Create remove button
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "remove-btn text-red-500 hover:text-red-700";
+        removeBtn.innerHTML = "×";
+
+        actionsDiv.appendChild(editBtn);
+        actionsDiv.appendChild(removeBtn);
+
+        newButton.appendChild(idDiv);
+        newButton.appendChild(titleDiv);
+        newButton.appendChild(actionsDiv);
+        buttonsContainer.appendChild(newButton);
+
+        // If we now have 3 buttons, disable the add button
+        if (buttonsContainer.querySelectorAll(".button-row").length >= 3) {
+          (addButtonBtn as HTMLButtonElement).disabled = true;
+          addButtonBtn.classList.add("opacity-50", "cursor-not-allowed");
+        }
+      });
+    }
+
+    // Handle form submission
+    const form = document.getElementById("editConditionForm");
+
+    if (form) {
+      form.addEventListener("submit", async (e: Event) => {
+        e.preventDefault();
+
+        const messageTextElement = document.getElementById("messageText");
+        if (!messageTextElement) {
+          alert("Required elements not found");
+          return;
+        }
+
+        const messageText = (messageTextElement as HTMLTextAreaElement).value;
+        if (!messageText.trim()) {
+          alert("Message text is required");
+          return;
+        }
+
+        // Check button count
+        const buttonRows = document.querySelectorAll(".button-row");
+        if (buttonRows.length > 3) {
+          alert("Maximum of 3 buttons allowed. Please remove extra buttons.");
+          return;
+        }
+
+        // Collect keywords
+        const keywords: string[] = [];
+        document
+          .querySelectorAll('input[name="keywords[]"]')
+          .forEach((input) => {
+            const inputElement = input as HTMLInputElement;
+            if (inputElement.value.trim()) {
+              keywords.push(inputElement.value.trim());
+            }
+          });
+
+        // Collect buttons
+        interface ButtonData {
+          title: string;
+        }
+
+        const buttons: Record<string, ButtonData> = {};
+
+        buttonRows.forEach((row) => {
+          const buttonId = (row as HTMLElement).dataset.buttonId;
+          const titleInput = row.querySelector('input[name="buttonTitle[]"]');
+
+          if (
+            buttonId &&
+            titleInput &&
+            (titleInput as HTMLInputElement).value.trim()
+          ) {
+            buttons[buttonId] = {
+              title: (titleInput as HTMLInputElement).value.trim(),
+            };
+          }
+        });
+
+        // Build the updated data object in the new format
+        interface UpdatedData {
+          text: string;
+          buttons: Record<string, ButtonData>;
+          keywords?: string[];
+        }
+
+        const data: UpdatedData = {
+          text: messageText.trim(),
+          buttons: buttons,
+        };
+
+        if (keywords.length > 0) {
+          data.keywords = keywords;
+        }
+
+        const index = (form as HTMLElement).dataset.index;
+        const pageTitleElement = form.getAttribute("data-page-title");
+        const isNewCondition = pageTitleElement === "New Condition";
+
+        try {
+          const response = await fetch(`/api/condition/${index}`, {
+            method: isNewCondition ? "POST" : "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+          });
+
+          if (response.ok) {
+            alert(
+              `Condition ${isNewCondition ? "created" : "updated"} successfully`,
+            );
+            window.location.href = `/${index}`;
+          } else {
+            const error = await response.text();
+            alert(
+              `Failed to ${isNewCondition ? "create" : "update"} condition: ${error}`,
+            );
+          }
+        } catch (error) {
+          console.error(
+            `Error ${isNewCondition ? "creating" : "updating"} condition:`,
+            error,
+          );
+          alert(
+            `An error occurred while ${isNewCondition ? "creating" : "updating"} the condition`,
+          );
+        }
+      });
+    }
+  });
+</script>

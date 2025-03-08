@@ -1,0 +1,30 @@
+---
+import { checkUserAuthentication } from "@utils/auth";
+
+const user = await checkUserAuthentication(Astro.request);
+if (!user) {
+  return Astro.redirect("/signin");
+}
+
+import Layout from "@layouts/Layout.astro";
+import VerifyToken from "@components/settings/VerifyToken.astro";
+import AccessToken from "@components/settings/AccessToken.astro";
+import PhoneNumberId from "@components/settings/PhoneNumberId.astro";
+import Menu from "@components/Menu.astro";
+import Whitelist from "../components/settings/Whitelist.astro";
+---
+
+<Layout title="Settings | Chatbot">
+  <Menu />
+  <div class="container mx-auto p-4">
+    <div class="bg-white shadow-md rounded-lg p-6">
+      <h2 class="text-2xl font-bold mb-4">Settings</h2>
+      <div class="space-y-4">
+        <Whitelist />
+        <AccessToken />
+        <PhoneNumberId />
+        <VerifyToken />
+      </div>
+    </div>
+  </div>
+</Layout>
