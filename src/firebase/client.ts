@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { FIREBASE_API_KEY } from "astro:env/server";
+import { FIREBASE_API_KEY } from "astro:env/client";
 
 const firebaseConfig = {
   apiKey: FIREBASE_API_KEY,

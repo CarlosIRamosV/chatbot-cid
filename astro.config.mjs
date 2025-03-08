@@ -13,8 +13,8 @@ export default defineConfig({
   env: {
     schema: {
       FIREBASE_API_KEY: envField.string({
-        context: "server",
-        access: "secret",
+        context: "client",
+        access: "public",
       }),
 
       FIREBASE_DATABASE_URL: envField.string({
