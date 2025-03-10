@@ -1,0 +1,554 @@
+---
+import Layout from "@layouts/Layout.astro";
+import Menu from "@components/Menu.astro";
+import { checkUserAuthentication } from "@utils/auth";
+import { GET } from "@api/chats";
+
+let data = [];
+
+try {
+  const user = await checkUserAuthentication(Astro.request);
+  if (!user) {
+    return Astro.redirect("/signin");
+  }
+  let response = await GET(Astro);
+  if (response.ok) {
+    data = await response.json();
+  } else {
+    console.error("Error fetching data:", response.statusText);
+  }
+} catch (error) {
+  console.error("Error checking user authentication:", error);
+  return Astro.redirect("/signin");
+}
+
+const phoneNumbers = data ? Object.keys(data) : [];
+---
+
+<style>
+  #chatContainer {
+    display: flex;
+    flex-direction: column;
+  }
+</style>
+
+<Layout title="Chat History">
+  <Menu />
+  <div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold mb-8">Chat History</h1>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <!-- Phone number list -->
+      <div class="md:col-span-1 bg-gray-50 p-4 rounded-lg shadow-sm">
+        <h2 class="text-xl font-semibold mb-4">Phone Numbers</h2>
+        {
+          phoneNumbers.length === 0 ? (
+            <p class="text-gray-500">No conversations found</p>
+          ) : (
+            <ul class="space-y-2" id="phoneList">
+              {phoneNumbers.map((phone) => (
+                <li>
+                  <button
+                    class="w-full text-left py-2 px-3 rounded hover:bg-gray-200 transition phone-selector"
+                    data-phone={phone}
+                  >
+                    {phone}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </div>
+
+      <!-- Chat history display -->
+      <div class="md:col-span-3 bg-white p-4 rounded-lg shadow-sm border">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold" id="currentPhoneHeader">
+            Select a conversation
+          </h2>
+          <div>
+            <button
+              id="toggleBotBtn"
+              class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 transition hidden mr-2"
+            >
+              Disable Bot
+            </button>
+            <button
+              id="deleteBtn"
+              class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition hidden"
+            >
+              Delete Conversation
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="chatContainer"
+          class="min-h-[400px] max-h-[600px] overflow-y-auto p-4 bg-gray-50 rounded"
+        >
+          <p class="text-gray-500 text-center py-8">
+            Select a phone number to view the conversation
+          </p>
+        </div>
+
+        <div
+          class="mt-4 flex gap-2"
+          id="messageInputContainer"
+          style="display: none;"
+        >
+          <input
+            type="text"
+            id="messageInput"
+            class="flex-grow p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Type a custom message..."
+          />
+          <button
+            id="sendMessageBtn"
+            class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  // Get references to DOM elements
+  const phoneButtons = document.querySelectorAll(".phone-selector");
+  const chatContainer = document.getElementById("chatContainer");
+  const currentPhoneHeader = document.getElementById("currentPhoneHeader");
+  const deleteBtn = document.getElementById("deleteBtn");
+  const messageInput = document.getElementById(
+    "messageInput",
+  ) as HTMLInputElement;
+  const sendMessageBtn = document.getElementById("sendMessageBtn");
+  const messageInputContainer = document.getElementById(
+    "messageInputContainer",
+  );
+  const toggleBotBtn = document.getElementById("toggleBotBtn");
+
+  let currentPhone = "";
+  let isBotEnabled = true;
+  let expiresIn: number | null = null;
+  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+  let chatRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Define interface for chat messages
+  interface ChatMessage {
+    id: string;
+    text: string;
+    timestamp: number;
+    isUser: boolean;
+    buttonId?: string;
+  }
+
+  // Function to format timestamp
+  function formatTimestamp(timestamp: number): string {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+  }
+
+  // Function to display messages
+  async function loadChatHistory(phoneNumber: string): Promise<void> {
+    if (!phoneNumber) return;
+
+    currentPhone = phoneNumber;
+    if (currentPhoneHeader) {
+      currentPhoneHeader.textContent = `Conversation with ${phoneNumber}`;
+    }
+
+    if (deleteBtn) {
+      deleteBtn.classList.remove("hidden");
+    }
+
+    if (toggleBotBtn) {
+      toggleBotBtn.classList.remove("hidden");
+    }
+
+    // Check bot status for this phone number
+    await checkBotStatus(phoneNumber);
+
+    // Show message input when a chat is selected
+    updateMessageInputVisibility(true);
+
+    // Start auto-refresh for the chat
+    startAutoRefresh(phoneNumber);
+
+    try {
+      const response = await fetch(`/api/chats?phoneNumber=${phoneNumber}`);
+
+      if (!response.ok) {
+        throw new Error(`Failed to load chat: ${response.status}`);
+      }
+
+      const chatData = await response.json();
+
+      if (!chatData || Object.keys(chatData).length === 0) {
+        if (chatContainer) {
+          chatContainer.innerHTML =
+            '<p class="text-gray-500 text-center py-8">No messages in this conversation</p>';
+        }
+        return;
+      }
+
+      // Convert chat data to array and sort by timestamp
+      const messages: ChatMessage[] = Object.entries(chatData)
+        .map(
+          ([id, message]: [string, any]): ChatMessage => ({
+            id,
+            text: message.text || "",
+            timestamp: message.timestamp || 0,
+            isUser: !!message.isUser,
+            buttonId: message.buttonId,
+          }),
+        )
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      // Generate HTML for messages
+      const messagesHtml = messages
+        .map((message: ChatMessage) => {
+          const isUserClass = message.isUser
+            ? "bg-blue-100 ml-auto"
+            : "bg-gray-200 mr-auto";
+
+          const buttonInfo = message.buttonId
+            ? `<div class="text-xs text-gray-500">Button: ${message.buttonId}</div>`
+            : "";
+
+          return `
+          <div class="mb-4 max-w-[80%] ${isUserClass} p-3 rounded-lg">
+            <div class="font-medium">${message.isUser ? "User" : "Bot"}</div>
+            <div>${message.text}</div>
+            ${buttonInfo}
+            <div class="text-xs text-gray-500 mt-1">${formatTimestamp(message.timestamp)}</div>
+          </div>
+        `;
+        })
+        .join("");
+
+      if (chatContainer) {
+        chatContainer.innerHTML = messagesHtml;
+        // Scroll to bottom of chat
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+    } catch (error) {
+      console.error("Error loading chat:", error);
+      if (chatContainer) {
+        chatContainer.innerHTML = `<p class="text-red-500 text-center py-8">Error loading conversation: ${error instanceof Error ? error.message : String(error)}</p>`;
+      }
+    }
+  }
+
+  // Delete conversation handler
+  async function deleteConversation(phoneNumber: string): Promise<void> {
+    if (!phoneNumber) return;
+
+    if (
+      !confirm(
+        `Are you sure you want to delete the conversation with ${phoneNumber}?`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/chats?phoneNumber=${phoneNumber}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete conversation: ${response.status}`);
+      }
+
+      // Remove from UI
+      const phoneElement = document.querySelector(
+        `[data-phone="${phoneNumber}"]`,
+      )?.parentElement;
+      if (phoneElement) {
+        phoneElement.remove();
+      }
+
+      // Reset the chat view
+      resetChatView();
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      alert(
+        `Error deleting conversation: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  // Add click event listeners
+  phoneButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      // Remove active class from all buttons
+      phoneButtons.forEach((btn) => btn.classList.remove("bg-blue-100"));
+
+      // Add active class to clicked button
+      button.classList.add("bg-blue-100");
+
+      // Load chat history
+      const phoneNumber = (button as HTMLElement).dataset.phone;
+      if (phoneNumber) {
+        loadChatHistory(phoneNumber);
+      }
+    });
+  });
+
+  // Delete button handler
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", () => {
+      deleteConversation(currentPhone);
+    });
+  }
+
+  // Toggle bot button handler
+  if (toggleBotBtn) {
+    toggleBotBtn.addEventListener("click", () => {
+      toggleBotStatus(currentPhone);
+    });
+  }
+
+  // Reset chat view function
+  function resetChatView() {
+    currentPhone = "";
+    if (currentPhoneHeader)
+      currentPhoneHeader.textContent = "Select a conversation";
+    if (chatContainer) {
+      chatContainer.innerHTML =
+        '<p class="text-gray-500 text-center py-8">Select a phone number to view the conversation</p>';
+    }
+    if (deleteBtn) {
+      deleteBtn.classList.add("hidden");
+    }
+    if (toggleBotBtn) {
+      toggleBotBtn.classList.add("hidden");
+    }
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+
+    // Clear chat refresh interval
+    if (chatRefreshInterval) {
+      clearInterval(chatRefreshInterval);
+      chatRefreshInterval = null;
+    }
+
+    // Hide message input when no chat is selected
+    updateMessageInputVisibility(false);
+  }
+
+  // Show/hide message input when a chat is selected
+  function updateMessageInputVisibility(show: boolean): void {
+    if (messageInputContainer) {
+      messageInputContainer.style.display = show ? "flex" : "none";
+    }
+  }
+
+  // Send message function
+  async function sendCustomMessage(
+    phoneNumber: string,
+    message: string,
+  ): Promise<void> {
+    if (!phoneNumber || !message.trim()) return;
+
+    try {
+      const response = await fetch("/api/send-message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phoneNumber,
+          message: message.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send message: ${response.status}`);
+      }
+
+      // Clear the input field
+      if (messageInput) {
+        messageInput.value = "";
+      }
+
+      // Reload the chat to show the new message
+      loadChatHistory(phoneNumber);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      alert(
+        `Error sending message: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  // Send message button handler
+  if (sendMessageBtn) {
+    sendMessageBtn.addEventListener("click", () => {
+      if (messageInput && currentPhone) {
+        sendCustomMessage(currentPhone, messageInput.value);
+      }
+    });
+  }
+
+  // Enter key handler for message input
+  if (messageInput) {
+    messageInput.addEventListener("keypress", (event) => {
+      if (event.key === "Enter" && currentPhone) {
+        sendCustomMessage(currentPhone, messageInput.value);
+      }
+    });
+  }
+
+  async function checkBotStatus(phoneNumber: string): Promise<void> {
+    try {
+      const response = await fetch(
+        `/api/bot-status?phoneNumber=${phoneNumber}`,
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to get bot status: ${response.status}`);
+      }
+      const data = await response.json();
+      isBotEnabled = data.enabled;
+      expiresIn = data.expiresIn;
+
+      // Update UI
+      updateToggleBotButton();
+
+      // Setup countdown timer if bot is disabled
+      if (!isBotEnabled && expiresIn) {
+        startCountdown();
+      } else {
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+        }
+      }
+    } catch (error) {
+      console.error("Error checking bot status:", error);
+    }
+  }
+
+  // Function to toggle bot status
+  async function toggleBotStatus(phoneNumber: string): Promise<void> {
+    try {
+      // Calculate expiration time - default to 1 hour if bot is being disabled
+      const expirationTime = !isBotEnabled ? null : Date.now() + 60 * 60 * 1000;
+
+      const response = await fetch("/api/bot-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phoneNumber,
+          enabled: !isBotEnabled,
+          expiration: expirationTime,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update bot status: ${response.status}`);
+      }
+
+      isBotEnabled = !isBotEnabled;
+      updateToggleBotButton();
+
+      // Show feedback to user
+      const status = isBotEnabled ? "enabled" : "disabled";
+      const duration = !isBotEnabled ? "1 hour" : "";
+      alert(
+        `Bot has been ${status} for this conversation${duration ? " for " + duration : ""}.`,
+      );
+    } catch (error) {
+      console.error("Error updating bot status:", error);
+      alert(
+        `Error updating bot status: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  // Update button text and style based on bot status
+  function updateToggleBotButton(): void {
+    if (!toggleBotBtn) return;
+
+    if (isBotEnabled) {
+      toggleBotBtn.textContent = "Disable Bot";
+      toggleBotBtn.classList.remove("bg-green-500", "hover:bg-green-600");
+      toggleBotBtn.classList.add("bg-yellow-500", "hover:bg-yellow-600");
+    } else {
+      updateCountdownDisplay();
+      toggleBotBtn.classList.remove("bg-yellow-500", "hover:bg-yellow-600");
+      toggleBotBtn.classList.add("bg-green-500", "hover:bg-green-600");
+    }
+  }
+
+  function startCountdown(): void {
+    // Clear any existing interval
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+    }
+
+    // Update immediately
+    updateCountdownDisplay();
+
+    // Update every second
+    countdownInterval = setInterval(() => {
+      if (expiresIn !== null && expiresIn <= 0) {
+        if (countdownInterval !== null) {
+          clearInterval(countdownInterval);
+        }
+        countdownInterval = null;
+        isBotEnabled = true;
+        updateToggleBotButton();
+        return;
+      }
+
+      if (expiresIn !== null) {
+        expiresIn -= 1000;
+      }
+      updateCountdownDisplay();
+    }, 1000);
+  }
+
+  function updateCountdownDisplay(): void {
+    if (!toggleBotBtn || isBotEnabled) return;
+
+    if (expiresIn !== null && expiresIn > 0) {
+      // Format remaining time
+      const minutes = Math.floor(expiresIn / 60000);
+      const seconds = Math.floor((expiresIn % 60000) / 1000);
+      const timeStr = `${minutes}m ${seconds}s`;
+
+      toggleBotBtn.textContent = `Enable Bot (${timeStr})`;
+    } else {
+      toggleBotBtn.textContent = "Enable Bot";
+    }
+  }
+
+  function startAutoRefresh(phoneNumber: string): void {
+    // Clear any existing interval
+    if (chatRefreshInterval) {
+      clearInterval(chatRefreshInterval);
+    }
+
+    // Set up interval to refresh chat every minute
+    chatRefreshInterval = setInterval(() => {
+      if (phoneNumber === currentPhone) {
+        loadChatHistory(phoneNumber);
+        console.log("Auto-refreshed chat");
+      } else {
+        // Stop refreshing if the phone number has changed
+        if (chatRefreshInterval !== null) {
+          clearInterval(chatRefreshInterval);
+        }
+        chatRefreshInterval = null;
+      }
+    }, 60000); // 60000 ms = 1 minute
+  }
+</script>
