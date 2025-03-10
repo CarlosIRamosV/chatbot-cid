@@ -141,6 +141,13 @@ export async function POST({
               buttonId: buttonPayload || null,
             });
 
+            // Check if the bot is enabled for this phone number
+            const isBotEnabled = await checkIfBotEnabled(phoneNumber);
+            if (!isBotEnabled) {
+              console.log("Bot is disabled for this phone number.");
+              return new Response(JSON.stringify({ success: true }));
+            }
+
             // Access the conditions data
             console.log("Conditions keys:", Object.keys(conditionsData));
 
@@ -363,6 +370,31 @@ function createTextMessage(to: string, text: string): Record<string, any> {
     type: "text",
     text: { body: text },
   };
+}
+
+async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
+  try {
+    const statusRef = getDatabase(app).ref(`chatbot/bot-status/${phoneNumber}`);
+    const snapshot = await statusRef.once("value");
+    const statusData = snapshot.val();
+
+    if (!statusData) return true; // Default to enabled if no record
+
+    if (statusData.enabled === false) {
+      // Check if expiration time has passed
+      if (statusData.expiration && statusData.expiration < Date.now()) {
+        // Auto-enable the bot and return true
+        await statusRef.update({ enabled: true, expiration: null });
+        return true;
+      }
+      return false; // Bot is disabled and expiration time hasn't passed
+    }
+
+    return true; // Bot is explicitly enabled
+  } catch (error) {
+    console.error("Error checking bot status:", error);
+    return true; // Default to enabled in case of errors
+  }
 }
 
 /**
