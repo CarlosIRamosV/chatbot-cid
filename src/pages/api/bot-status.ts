@@ -3,49 +3,34 @@ import { getDatabase } from "firebase-admin/database";
 import { app } from "@firebase/server.ts";
 import { checkUserAuthentication } from "@utils/auth.ts";
 
-const getBotStatusRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/bot-status");
-};
+const getBotStatusRef = () => getDatabase(app).ref("chatbot/bot-status");
 
-// GET endpoint to check bot status for a specific number
 export const GET: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
-  if (!user) {
-    return new Response("No token found", { status: 401 });
-  }
+  if (!user) return new Response("No token found", { status: 401 });
 
   try {
-    // Get phoneNumber from URL parameters
     const url = new URL(request.url);
     const phoneNumber = url.searchParams.get("phoneNumber");
-
-    if (!phoneNumber) {
+    if (!phoneNumber)
       return new Response("Phone number is required", { status: 400 });
-    }
 
-    // Get bot status from database
-    const statusRef = getBotStatusRef().child(phoneNumber);
-    const snapshot = await statusRef.once("value");
+    const snapshot = await getBotStatusRef().child(phoneNumber).once("value");
     const statusData = snapshot.val();
 
-    // Default to enabled if no status is found
-    // Or if the disable period has expired
     let enabled = true;
     let expiresIn = null;
 
-    if (statusData) {
-      if (statusData.enabled === false) {
-        if (statusData.expiration && statusData.expiration < Date.now()) {
-          // Expiration time has passed, re-enable bot
-          await statusRef.update({ enabled: true, expiration: null });
-        } else {
-          enabled = false;
-          // Add this line to calculate remaining time in milliseconds
-          expiresIn = statusData.expiration
-            ? statusData.expiration - Date.now()
-            : null;
-        }
+    if (statusData && statusData.enabled === false) {
+      if (statusData.expiration && statusData.expiration < Date.now()) {
+        await getBotStatusRef()
+          .child(phoneNumber)
+          .update({ enabled: true, expiration: null });
+      } else {
+        enabled = false;
+        expiresIn = statusData.expiration
+          ? statusData.expiration - Date.now()
+          : null;
       }
     }
 
@@ -62,16 +47,12 @@ export const GET: APIRoute = async ({ request }) => {
   }
 };
 
-// POST endpoint to update bot status
 export const POST: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
-  if (!user) {
-    return new Response("No token found", { status: 401 });
-  }
+  if (!user) return new Response("No token found", { status: 401 });
 
   try {
-    const body = await request.json();
-    const { phoneNumber, enabled, expiration } = body;
+    const { phoneNumber, enabled, expiration } = await request.json();
 
     if (phoneNumber === undefined || enabled === undefined) {
       return new Response("Phone number and enabled status are required", {
@@ -79,14 +60,14 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    // Update bot status in database
-    const statusRef = getBotStatusRef().child(phoneNumber);
-    await statusRef.update({
-      enabled,
-      expiration: expiration || null,
-      updatedAt: Date.now(),
-      updatedBy: user.uid,
-    });
+    await getBotStatusRef()
+      .child(phoneNumber)
+      .update({
+        enabled,
+        expiration: expiration || null,
+        updatedAt: Date.now(),
+        updatedBy: user.uid,
+      });
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

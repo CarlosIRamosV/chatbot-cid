@@ -4,40 +4,30 @@ import { getAuth } from "firebase-admin/auth";
 import { getDatabase } from "firebase-admin/database";
 
 export const GET: APIRoute = async ({ request, cookies, redirect }) => {
-  const auth = getAuth(app);
-
-  // Obtener el token del encabezado de la solicitud
   const idToken = request.headers.get("Authorization")?.split("Bearer ")[1];
-  if (!idToken) {
-    return new Response("No token found", { status: 401 });
-  }
+  if (!idToken) return new Response("No token found", { status: 401 });
 
   try {
-    // Verificar el token de ID
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const email = decodedToken.email;
+    const decodedToken = await getAuth(app).verifyIdToken(idToken);
+    const { email } = decodedToken;
 
-    if (!email) {
-      return new Response("No email found", { status: 401 });
-    }
+    if (!email) return new Response("No email found", { status: 401 });
 
-    // Verificar si el usuario está en la lista blanca
-    const db = getDatabase(app);
-    const emailsWhitelistRef = db.ref("chatbot/settings/emails_whitelist");
-    const snapshot = await emailsWhitelistRef.once("value");
+    const snapshot = await getDatabase(app)
+      .ref("chatbot/settings/emails_whitelist")
+      .once("value");
     const emailsWhitelist = snapshot.val();
 
     if (!emailsWhitelist || !emailsWhitelist.includes(email)) {
       return new Response("Email not in whitelist", { status: 401 });
     }
 
-    // Crear y establecer la cookie de sesión
     const fiveDays = 60 * 60 * 24 * 5 * 1000;
-    const sessionCookie = await auth.createSessionCookie(idToken, {
+    const sessionCookie = await getAuth(app).createSessionCookie(idToken, {
       expiresIn: fiveDays,
     });
 
-    cookies.set("__session", sessionCookie, {
+    cookies.set("session", sessionCookie, {
       path: "/",
       httpOnly: true,
       secure: true,

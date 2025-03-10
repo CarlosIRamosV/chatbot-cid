@@ -4,17 +4,10 @@ import { getDatabase } from "firebase-admin/database";
 import { app } from "@firebase/server.ts";
 import { checkUserAuthentication } from "@utils/auth.ts";
 
-const getSettingsRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/settings");
-};
+const getSettingsRef = () => getDatabase(app).ref("chatbot/settings");
+const getChatsRef = () => getDatabase(app).ref("chatbot/chats");
 
-const getChatsRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/chats");
-};
-
-function createTextMessage(to: string, text: string): Record<string, any> {
+function createTextMessage(to: string, text: string) {
   return {
     messaging_product: "whatsapp",
     to,
@@ -25,15 +18,14 @@ function createTextMessage(to: string, text: string): Record<string, any> {
 
 async function sendMessage(
   payload: Record<string, any>,
-  facebookPhoneNumberId: string,
-  facebookAccessToken: string,
+  phoneNumberId: string,
+  accessToken: string,
 ): Promise<void> {
-  const url = `https://graph.facebook.com/v22.0/${facebookPhoneNumberId}/messages`;
-
+  const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
   try {
     await axios.post(url, payload, {
       headers: {
-        Authorization: `Bearer ${facebookAccessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
     });
@@ -48,14 +40,10 @@ async function sendMessage(
 
 export const POST: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
-  if (!user) {
-    return new Response("No token found", { status: 401 });
-  }
+  if (!user) return new Response("No token found", { status: 401 });
 
   try {
-    // Parse request body
-    const body = await request.json();
-    const { phoneNumber, message } = body;
+    const { phoneNumber, message } = await request.json();
 
     if (!phoneNumber || !message) {
       return new Response("Phone number and message are required", {
@@ -63,24 +51,22 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    // Get settings for API credentials
-    const settingsRef = getSettingsRef();
-    const settingsSnapshot = await settingsRef.once("value");
+    const settingsSnapshot = await getSettingsRef().once("value");
     const settings = settingsSnapshot.val();
 
-    if (!settings || !settings.access_token || !settings.phone_number_id) {
+    if (!settings?.access_token || !settings?.phone_number_id) {
       return new Response("Missing WhatsApp API configuration", {
         status: 500,
       });
     }
 
-    // Create and send the message
-    const payload = createTextMessage(phoneNumber, message);
-    await sendMessage(payload, settings.phone_number_id, settings.access_token);
+    await sendMessage(
+      createTextMessage(phoneNumber, message),
+      settings.phone_number_id,
+      settings.access_token,
+    );
 
-    // Save the message to chat history
-    const chatsRef = getChatsRef().child(phoneNumber);
-    await chatsRef.push({
+    await getChatsRef().child(phoneNumber).push({
       text: message,
       timestamp: Date.now(),
       isUser: false,

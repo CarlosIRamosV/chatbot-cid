@@ -3,25 +3,21 @@ import { getDatabase } from "firebase-admin/database";
 import { app } from "@firebase/server.ts";
 import { checkUserAuthentication } from "@utils/auth.ts";
 
-const handleError = (message: string, status: number): Response => {
-  return new Response(JSON.stringify({ error: message }), { status });
-};
+const handleError = (message: string, status: number): Response =>
+  new Response(JSON.stringify({ error: message }), { status });
+
+const getAccessTokenRef = () =>
+  getDatabase(app).ref("chatbot/settings/access_token");
 
 export const GET: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
-  if (!user) {
-    return handleError("No token found", 401);
-  }
+  if (!user) return handleError("No token found", 401);
 
   try {
-    const db = getDatabase(app);
-    const accessTokenRef = db.ref("chatbot/settings/access_token");
-    const snapshot = await accessTokenRef.once("value");
-    const accessToken = snapshot.val();
+    const snapshot = await getAccessTokenRef().once("value");
+    const accessToken = snapshot.val() || "";
 
-    if (!accessToken) {
-      await accessTokenRef.set("");
-    }
+    if (!accessToken) await getAccessTokenRef().set("");
 
     return new Response(JSON.stringify({ accessToken }), { status: 200 });
   } catch (error) {
@@ -31,19 +27,13 @@ export const GET: APIRoute = async ({ request }) => {
 
 export const PUT: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
-  if (!user) {
-    return handleError("No token found", 401);
-  }
+  if (!user) return handleError("No token found", 401);
 
   try {
     const { accessToken } = await request.json();
-    if (!accessToken) {
-      return handleError("Access token is required", 400);
-    }
+    if (!accessToken) return handleError("Access token is required", 400);
 
-    const db = getDatabase(app);
-    const accessTokenRef = db.ref("chatbot/settings/access_token");
-    await accessTokenRef.set(accessToken);
+    await getAccessTokenRef().set(accessToken);
 
     return new Response(
       JSON.stringify({ message: "Access token updated successfully" }),
