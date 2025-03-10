@@ -9,7 +9,7 @@ let data = [];
 try {
   const user = await checkUserAuthentication(Astro.request);
   if (!user) {
-    return Astro.redirect("/signin");
+    return Astro.redirect("/login");
   }
   let response = await GET(Astro);
   if (response.ok) {

@@ -62,7 +62,7 @@ const MessageNode = ({ data }: { data: any }) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleEdit = (nodeId: string) => {
-    window.location.href = `/${nodeId}`;
+    window.location.href = `/conditions?id=${nodeId}`;
   };
 
   const handleDelete = () => {
@@ -74,7 +74,7 @@ const MessageNode = ({ data }: { data: any }) => {
 
     try {
       setIsDeleting(true);
-      const response = await fetch(`/api/condition/${data.nodeId}`, {
+      const response = await fetch(`/api/conditions?id=${data.nodeId}`, {
         method: "DELETE",
       });
 
@@ -372,10 +372,10 @@ export default function Diagram({ data }: DiagramProps) {
   // Add new element handler
   const handleAddNewElement = () => {
     if (Object.keys(data).length === 0) {
-      window.location.href = `/default`;
+      window.location.href = `/conditions?id=default`;
     } else {
       const newId = Date.now().toString();
-      window.location.href = `/${newId}`;
+      window.location.href = `/conditions?id=${newId}`;
     }
   };
 

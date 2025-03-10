@@ -3,22 +3,26 @@ import { getDatabase } from "firebase-admin/database";
 import { app } from "@firebase/server.ts";
 import { checkUserAuthentication } from "@utils/auth.ts";
 
-const getChatbotRef = (id: string) => {
+const getChatbotRef = (id: string | null) => {
   const db = getDatabase(app);
-  return db.ref("chatbot/conditions").child(id);
+  if (!id) {
+    return db.ref("chatbot/conditions");
+  }
+  return db.ref(`chatbot/conditions/${id}`);
 };
 
-export const GET: APIRoute = async ({ params, request }) => {
+export const GET: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
   if (!user) {
     return new Response("No token found", { status: 401 });
   }
 
   try {
-    if (!params.id) {
-      return new Response("No ID provided", { status: 400 });
-    }
-    const chatbotRef = getChatbotRef(params.id);
+    // Get condition ID from URL parameters
+    const url = new URL(request.url);
+    const conditionId = url.searchParams.get("id");
+
+    const chatbotRef = getChatbotRef(conditionId);
     const snapshot = await chatbotRef.once("value");
     const condition = snapshot.val();
     if (!condition) {
@@ -40,17 +44,20 @@ export const GET: APIRoute = async ({ params, request }) => {
   }
 };
 
-export const PUT: APIRoute = async ({ params, request }) => {
+export const PUT: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
   if (!user) {
     return new Response("No token found", { status: 401 });
   }
 
   try {
-    if (!params.id) {
+    // Get condition ID from URL parameters
+    const url = new URL(request.url);
+    const conditionId = url.searchParams.get("id");
+    if (!conditionId) {
       return new Response("No ID provided", { status: 400 });
     }
-    const chatbotRef = getChatbotRef(params.id);
+    const chatbotRef = getChatbotRef(conditionId);
     const condition = await request.json();
     await chatbotRef.set(condition);
     return new Response(JSON.stringify(condition), {
@@ -69,17 +76,20 @@ export const PUT: APIRoute = async ({ params, request }) => {
   }
 };
 
-export const DELETE: APIRoute = async ({ params, request }) => {
+export const DELETE: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
   if (!user) {
     return new Response("No token found", { status: 401 });
   }
 
   try {
-    if (!params.id) {
+    // Get condition ID from URL parameters
+    const url = new URL(request.url);
+    const conditionId = url.searchParams.get("id");
+    if (!conditionId) {
       return new Response("No ID provided", { status: 400 });
     }
-    const chatbotRef = getChatbotRef(params.id);
+    const chatbotRef = getChatbotRef(conditionId);
     await chatbotRef.remove();
     return new Response("Condition deleted successfully", {
       status: 200,
@@ -97,17 +107,20 @@ export const DELETE: APIRoute = async ({ params, request }) => {
   }
 };
 
-export const POST: APIRoute = async ({ params, request }) => {
+export const POST: APIRoute = async ({ request }) => {
   const user = await checkUserAuthentication(request);
   if (!user) {
     return new Response("No token found", { status: 401 });
   }
 
   try {
-    if (!params.id) {
+    // Get condition ID from URL parameters
+    const url = new URL(request.url);
+    const conditionId = url.searchParams.get("id");
+    if (!conditionId) {
       return new Response("No ID provided", { status: 400 });
     }
-    const chatbotRef = getChatbotRef(params.id);
+    const chatbotRef = getChatbotRef(conditionId);
     const condition = await request.json();
     await chatbotRef.set(condition);
     return new Response(JSON.stringify(condition), {

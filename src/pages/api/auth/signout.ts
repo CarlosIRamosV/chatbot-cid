@@ -4,5 +4,5 @@ export const GET: APIRoute = async ({ redirect, cookies }) => {
   cookies.delete("__session", {
     path: "/",
   });
-  return redirect("/");
+  return redirect("/login");
 };

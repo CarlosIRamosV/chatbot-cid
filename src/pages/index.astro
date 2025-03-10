@@ -4,13 +4,13 @@ import Menu from "@components/Menu.astro";
 import Layout from "@layouts/Layout.astro";
 import { checkUserAuthentication } from "@utils/auth";
 
-import { GET } from "@api/condition";
+import { GET } from "./api/conditions";
 
 let data = [];
 try {
   const user = await checkUserAuthentication(Astro.request);
   if (!user) {
-    return Astro.redirect("/signin");
+    return Astro.redirect("/login");
   }
   let response = await GET(Astro);
   if (response.ok) {

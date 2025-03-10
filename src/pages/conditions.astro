@@ -2,9 +2,9 @@
 import Layout from "@layouts/Layout.astro";
 import { checkUserAuthentication } from "@utils/auth.ts";
 import Menu from "@components/Menu.astro";
-import { GET } from "@api/condition/[id]";
+import { GET } from "./api/conditions";
 
-const { id } = Astro.params;
+const id = Astro.url.searchParams.get("id") || Date.now().toString();
 
 interface ButtonData {
   title: string;
@@ -27,7 +27,7 @@ let pageTitle = "Edit Condition";
 try {
   const user = await checkUserAuthentication(Astro.request);
   if (!user) {
-    return Astro.redirect("/signin");
+    return Astro.redirect("/login");
   }
 
   let response = await GET(Astro);
@@ -135,7 +135,7 @@ try {
                   </div>
                   <div class="flex items-center space-x-2 mt-6">
                     <a
-                      href={`/${buttonId}`}
+                      href={`/conditions?id=${buttonId}`}
                       class="edit-btn text-blue-600 hover:text-blue-800"
                     >
                       Edit
@@ -430,7 +430,7 @@ try {
         const isNewCondition = pageTitleElement === "New Condition";
 
         try {
-          const response = await fetch(`/api/condition/${index}`, {
+          const response = await fetch(`/api/conditions?id=${index}`, {
             method: isNewCondition ? "POST" : "PUT",
             headers: {
               "Content-Type": "application/json",
@@ -442,7 +442,7 @@ try {
             alert(
               `Condition ${isNewCondition ? "created" : "updated"} successfully`,
             );
-            window.location.href = `/${index}`;
+            window.location.href = `/conditions?id=${index}`;
           } else {
             const error = await response.text();
             alert(
