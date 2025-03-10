@@ -12,6 +12,12 @@ const getSettingsRef = () => {
   return db.ref("chatbot/settings");
 };
 
+// New function to get chats reference
+const getChatsRef = () => {
+  const db = getDatabase(app);
+  return db.ref("chatbot/chats");
+};
+
 interface RequestParams {
   params: Record<string, string>;
   request: Request;
@@ -37,6 +43,7 @@ interface Message {
       id: string;
     };
   };
+  timestamp?: number;
 }
 
 interface Button {
@@ -59,6 +66,12 @@ interface Settings {
   access_token: string;
 }
 
+/**
+ * Handles the verification of the webhook subscription.
+ *
+ * @param {RequestParams} request - The incoming request object.
+ * @returns {Promise<Response>} - A promise that resolves to a Response object.
+ */
 export async function GET({ request }: RequestParams): Promise<Response> {
   try {
     const { searchParams } = new URL(request.url);
@@ -81,6 +94,12 @@ export async function GET({ request }: RequestParams): Promise<Response> {
   return new Response("Forbidden", { status: 403 });
 }
 
+/**
+ * Handles incoming webhook events from WhatsApp Business API.
+ *
+ * @param {Request} request - The incoming request object.
+ * @returns {Promise<Response>} - A promise that resolves to a Response object.
+ */
 export async function POST({
   request,
 }: {
@@ -95,6 +114,8 @@ export async function POST({
     const settingsRef = getSettingsRef();
     const settingsSnapshot = await settingsRef.once("value");
     const settingsData = settingsSnapshot.val() as Settings;
+    const chatsRef = getChatsRef();
+
     if (data.entry) {
       for (const entry of data.entry as Entry[]) {
         for (const change of entry.changes) {
@@ -102,10 +123,23 @@ export async function POST({
 
           if (message) {
             const phoneNumber = message.from;
-            const text = message.text?.body?.toLowerCase() || "";
+            const text = message.text?.body || "";
             const buttonPayload = message?.interactive?.button_reply?.id;
             console.log("buttonPayload recibido:", buttonPayload);
             let payload;
+            let responseText = "";
+            let responseButtonId = "";
+
+            // Save user message to chat history
+            const timestamp = Date.now();
+            const chatMessageRef = chatsRef.child(phoneNumber);
+
+            await chatMessageRef.push({
+              text: buttonPayload ? `Button: ${buttonPayload}` : text,
+              timestamp,
+              isUser: true,
+              buttonId: buttonPayload || null,
+            });
 
             // Access the conditions data
             console.log("Conditions keys:", Object.keys(conditionsData));
@@ -116,6 +150,9 @@ export async function POST({
               const matchedCondition = conditionsData[buttonPayload];
 
               if (matchedCondition.text) {
+                responseText = matchedCondition.text;
+                responseButtonId = buttonPayload;
+
                 if (matchedCondition.buttons) {
                   // Create interactive response with buttons
                   const buttons = Object.entries(matchedCondition.buttons).map(
@@ -177,6 +214,9 @@ export async function POST({
                     foundMatch = true;
 
                     if (conditionData.text) {
+                      responseText = conditionData.text;
+                      responseButtonId = conditionId;
+
                       if (conditionData.buttons) {
                         // Create interactive response with buttons
                         const buttons = Object.entries(
@@ -211,6 +251,9 @@ export async function POST({
                   const defaultCondition = conditionsData["default"];
 
                   if (defaultCondition.text) {
+                    responseText = defaultCondition.text;
+                    responseButtonId = "default";
+
                     if (defaultCondition.buttons) {
                       // Create interactive response with buttons
                       const buttons = Object.entries(
@@ -241,6 +284,15 @@ export async function POST({
                 "Sending message payload:",
                 JSON.stringify(payload, null, 2),
               );
+
+              // Save bot response to chat history
+              await chatMessageRef.push({
+                text: responseText,
+                timestamp: Date.now(),
+                isUser: false,
+                buttonId: responseButtonId || null,
+              });
+
               await sendMessage(
                 payload,
                 settingsData.phone_number_id,
@@ -258,6 +310,14 @@ export async function POST({
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
+/**
+ * Creates an interactive message payload for the WhatsApp Business API.
+ *
+ * @param {string} to - The recipient's phone number.
+ * @param {string} body - The message body text.
+ * @param {Array<{ id: string; title: string }>} buttons - An array of button objects.
+ * @returns {Record<string, any>} - The message payload.
+ */
 function createInteractiveMessage(
   to: string,
   body: string,
@@ -289,6 +349,13 @@ function createInteractiveMessage(
   };
 }
 
+/**
+ * Creates a text message payload for the WhatsApp Business API.
+ *
+ * @param {string} to - The recipient's phone number.
+ * @param {string} text - The message text.
+ * @returns {Record<string, any>} - The message payload.
+ */
 function createTextMessage(to: string, text: string): Record<string, any> {
   return {
     messaging_product: "whatsapp",
@@ -298,6 +365,14 @@ function createTextMessage(to: string, text: string): Record<string, any> {
   };
 }
 
+/**
+ * Sends a message using the WhatsApp Business API.
+ *
+ * @param {Record<string, any>} payload - The message payload to send.
+ * @param {string} facebookPhoneNumberId - The phone number ID for the WhatsApp Business account.
+ * @param {string} facebookAccessToken - The access token for the WhatsApp Business API.
+ * @returns {Promise<void>} - A promise that resolves when the message is sent.
+ */
 async function sendMessage(
   payload: Record<string, any>,
   facebookPhoneNumberId: string,
