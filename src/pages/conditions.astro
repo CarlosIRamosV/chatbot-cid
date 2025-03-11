@@ -61,7 +61,7 @@ try {
             id="messageText"
             name="messageText"
             rows="4"
-            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-400 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
             >{data.text}</textarea
           >
         </div>
@@ -81,7 +81,7 @@ try {
                     type="text"
                     name="keywords[]"
                     value={keyword}
-                    class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-400 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                   />
                   <button type="button" class="remove-btn text-red-500">
                     ×
@@ -130,7 +130,7 @@ try {
                       type="text"
                       name="buttonTitle[]"
                       value={buttonData.title}
-                      class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                      class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-400 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                     />
                   </div>
                   <div class="flex items-center space-x-2 mt-6">
@@ -232,7 +232,7 @@ try {
         input.name = "keywords[]";
         input.placeholder = "Enter keyword";
         input.className =
-          "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
+          "mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-400 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
 
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
@@ -311,7 +311,7 @@ try {
         titleInput.name = "buttonTitle[]";
         titleInput.placeholder = "Button Title";
         titleInput.className =
-          "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
+          "mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-400 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md";
 
         titleDiv.appendChild(titleLabel);
         titleDiv.appendChild(titleInput);
