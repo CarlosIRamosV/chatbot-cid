@@ -289,27 +289,26 @@ export async function POST({
                   payload = createTextMessage(phoneNumber, responseText);
                 }
               }
+            }
+            if (payload) {
+              console.log(
+                "Sending message payload:",
+                JSON.stringify(payload, null, 2),
+              );
 
-              if (payload) {
-                console.log(
-                  "Sending message payload:",
-                  JSON.stringify(payload, null, 2),
-                );
+              // Save bot response to chat history
+              await chatMessageRef.push({
+                text: responseText,
+                timestamp: Date.now(),
+                isUser: false,
+                buttonId: responseButtonId || null,
+              });
 
-                // Save bot response to chat history
-                await chatMessageRef.push({
-                  text: responseText,
-                  timestamp: Date.now(),
-                  isUser: false,
-                  buttonId: responseButtonId || null,
-                });
-
-                await sendMessage(
-                  payload,
-                  settingsData.phone_number_id,
-                  settingsData.access_token,
-                );
-              }
+              await sendMessage(
+                payload,
+                settingsData.phone_number_id,
+                settingsData.access_token,
+              );
             }
           }
         }
