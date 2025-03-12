@@ -2,22 +2,13 @@ import axios from "axios";
 import { getDatabase } from "firebase-admin/database";
 import { app } from "@firebase/server.ts";
 
-const getConditionsRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/conditions");
-};
+// Database references
+const getRef = (path: string) => getDatabase(app).ref(`chatbot/${path}`);
+const getConditionsRef = () => getRef("conditions");
+const getSettingsRef = () => getRef("settings");
+const getChatsRef = () => getRef("chats");
 
-const getSettingsRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/settings");
-};
-
-// New function to get chats reference
-const getChatsRef = () => {
-  const db = getDatabase(app);
-  return db.ref("chatbot/chats");
-};
-
+// Interfaces
 interface RequestParams {
   params: Record<string, string>;
   request: Request;
@@ -35,14 +26,8 @@ interface Change {
 
 interface Message {
   from: string;
-  text?: {
-    body: string;
-  };
-  interactive?: {
-    button_reply?: {
-      id: string;
-    };
-  };
+  text?: { body: string };
+  interactive?: { button_reply?: { id: string } };
   timestamp?: number;
 }
 
@@ -66,12 +51,12 @@ interface Settings {
   access_token: string;
 }
 
-/**
- * Handles the verification of the webhook subscription.
- *
- * @param {RequestParams} request - The incoming request object.
- * @returns {Promise<Response>} - A promise that resolves to a Response object.
- */
+interface ButtonInfo {
+  id: string;
+  title: string;
+}
+
+// GET endpoint for webhook verification
 export async function GET({ request }: RequestParams): Promise<Response> {
   try {
     const { searchParams } = new URL(request.url);
@@ -80,10 +65,8 @@ export async function GET({ request }: RequestParams): Promise<Response> {
     const challenge = searchParams.get("hub.challenge");
 
     if (mode === "subscribe") {
-      const settingsRef = getSettingsRef();
-      const snapshot = await settingsRef.once("value");
-      const data = snapshot.val() as Settings;
-      if (token === data.verification_token) {
+      const settings = await getSettingsRef().once("value").then(snap => snap.val() as Settings);
+      if (token === settings.verification_token) {
         return new Response(challenge, { status: 200 });
       }
     }
@@ -94,268 +77,129 @@ export async function GET({ request }: RequestParams): Promise<Response> {
   return new Response("Forbidden", { status: 403 });
 }
 
-/**
- * Handles incoming webhook events from WhatsApp Business API.
- *
- * @param {Request} request - The incoming request object.
- * @returns {Promise<Response>} - A promise that resolves to a Response object.
- */
-export async function POST({
-  request,
-}: {
-  request: Request;
-}): Promise<Response> {
-  const data = await request.json();
-
+// POST endpoint for handling webhook messages
+export async function POST({ request }: { request: Request }): Promise<Response> {
   try {
-    const conditionsRef = getConditionsRef();
-    const snapshot = await conditionsRef.once("value");
-    const conditionsData = snapshot.val() as Conditions;
-    const settingsRef = getSettingsRef();
-    const settingsSnapshot = await settingsRef.once("value");
-    const settingsData = settingsSnapshot.val() as Settings;
+    const data = await request.json();
+    const conditions = await getConditionsRef().once("value").then(snap => snap.val() as Conditions);
+    const settings = await getSettingsRef().once("value").then(snap => snap.val() as Settings);
     const chatsRef = getChatsRef();
 
-    if (data.entry) {
-      for (const entry of data.entry as Entry[]) {
-        for (const change of entry.changes) {
-          const message = change.value?.messages?.[0];
+    if (!data.entry) return new Response("EVENT_RECEIVED", { status: 200 });
 
-          if (message) {
-            const phoneNumber = message.from;
-            const text = message.text?.body || "";
-            const buttonPayload = message?.interactive?.button_reply?.id;
-            const shouldSendDefault = await checkIfShouldSendDefault(
-              phoneNumber,
-              chatsRef,
-            );
+    for (const entry of data.entry as Entry[]) {
+      for (const change of entry.changes) {
+        const message = change.value?.messages?.[0];
+        if (!message) continue;
 
-            // Save user message to chat history
-            const timestamp = Date.now();
-            const chatMessageRef = chatsRef.child(phoneNumber);
+        const phoneNumber = message.from;
+        const text = message.text?.body || "";
+        const buttonPayload = message?.interactive?.button_reply?.id;
+        const timestamp = Date.now();
+        const chatRef = chatsRef.child(phoneNumber);
 
-            await chatMessageRef.push({
-              text: buttonPayload ? `Button: ${buttonPayload}` : text,
-              timestamp,
-              isUser: true,
-              buttonId: buttonPayload || null,
+        // Save user message
+        await chatRef.push({
+          text: buttonPayload ? `Button: ${buttonPayload}` : text,
+          timestamp,
+          isUser: true,
+          buttonId: buttonPayload || null,
+        });
+
+        // Check if bot is enabled
+        if (!await checkIfBotEnabled(phoneNumber)) {
+          console.log("Bot is disabled for this phone number.");
+          continue;
+        }
+
+        let payload;
+        let responseText = "";
+        let responseButtonId = "";
+
+        // Determine response based on conditions
+        if (await checkIfShouldSendDefault(phoneNumber, chatsRef) && conditions["default"]) {
+          // Default welcome message
+          const defaultCondition = conditions["default"];
+          responseText = "Bienvenido a nuestro servicio. \n" + (defaultCondition.text ?? "");
+          responseButtonId = "default";
+
+          payload = defaultCondition.buttons
+            ? createInteractiveMessage(phoneNumber, responseText,
+              Object.entries(defaultCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+            : createTextMessage(phoneNumber, responseText);
+        } else if (buttonPayload && conditions[buttonPayload]) {
+          // Button response
+          const matchedCondition = conditions[buttonPayload];
+          responseText = matchedCondition.text ?? "";
+          responseButtonId = buttonPayload;
+
+          payload = matchedCondition.buttons
+            ? createInteractiveMessage(phoneNumber, matchedCondition.text ?? "",
+              Object.entries(matchedCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+            : createTextMessage(phoneNumber, matchedCondition.text ?? "");
+        } else {
+          // Keyword matching
+          let foundMatch = false;
+
+          for (const [conditionId, condition] of Object.entries(conditions)) {
+            if (!condition.keywords?.length) continue;
+
+            const keywordMatch = condition.keywords.some(keyword => {
+              const normalizedKeyword = keyword.toLowerCase();
+              const normalizedText = text.toLowerCase();
+              return normalizedText.includes(normalizedKeyword) ||
+                (normalizedKeyword.includes(normalizedText) && normalizedText.length > 3);
             });
 
-            // Check if the bot is enabled for this phone number
-            const isBotEnabled = await checkIfBotEnabled(phoneNumber);
-            if (!isBotEnabled) {
-              console.log("Bot is disabled for this phone number.");
-              return new Response(JSON.stringify({ success: true }));
-            }
+            if (keywordMatch) {
+              foundMatch = true;
+              responseText = condition.text ?? "";
+              responseButtonId = conditionId;
 
-            let payload;
-            let responseText = "";
-            let responseButtonId = "";
-
-            if (shouldSendDefault && conditionsData["default"]) {
-              console.log(
-                "Sending default message due to time gap or new user",
-              );
-              const defaultCondition = conditionsData["default"];
-
-              if (defaultCondition.text) {
-                responseText =
-                  "Bienvenido a nuestro servicio. \n" + defaultCondition.text;
-                responseButtonId = "default";
-
-                if (defaultCondition.buttons) {
-                  const buttons = Object.entries(defaultCondition.buttons).map(
-                    ([id, buttonData]: [string, Button]) => ({
-                      id,
-                      title: buttonData.title,
-                    }),
-                  );
-                  payload = createInteractiveMessage(
-                    phoneNumber,
-                    responseText,
-                    buttons,
-                  );
-                } else {
-                  payload = createTextMessage(phoneNumber, responseText);
-                }
-              }
-            } else {
-              // First check if we have a direct button match (higher priority)
-              if (buttonPayload && conditionsData[buttonPayload]) {
-                console.log(`Found button match for payload: ${buttonPayload}`);
-                const matchedCondition = conditionsData[buttonPayload];
-
-                if (matchedCondition.text) {
-                  responseText = matchedCondition.text;
-                  responseButtonId = buttonPayload;
-
-                  if (matchedCondition.buttons) {
-                    // Create interactive response with buttons
-                    const buttons = Object.entries(
-                      matchedCondition.buttons,
-                    ).map(([id, buttonData]: [string, Button]) => ({
-                      id,
-                      title: buttonData.title,
-                    }));
-
-                    payload = createInteractiveMessage(
-                      phoneNumber,
-                      matchedCondition.text,
-                      buttons,
-                    );
-                  } else {
-                    // Simple text response
-                    payload = createTextMessage(
-                      phoneNumber,
-                      matchedCondition.text,
-                    );
-                  }
-                }
-              } else {
-                // Check for keyword matches
-                let foundMatch = false;
-                console.log(`Checking for keyword match with text: "${text}"`);
-
-                for (const [
-                  conditionId,
-                  conditionData,
-                ] of Object.entries<Condition>(conditionsData)) {
-                  if (
-                    conditionData.keywords &&
-                    Array.isArray(conditionData.keywords)
-                  ) {
-                    console.log(
-                      `Condition ${conditionId} has keywords:`,
-                      conditionData.keywords,
-                    );
-
-                    const keywordMatch = conditionData.keywords.some(
-                      (keyword: string) => {
-                        const normalizedKeyword = keyword.toLowerCase();
-                        const normalizedText = text.toLowerCase();
-                        const match =
-                          normalizedText.includes(normalizedKeyword) ||
-                          (normalizedKeyword.includes(normalizedText) &&
-                            normalizedText.length > 3);
-
-                        if (match) {
-                          console.log(`Match found with keyword: ${keyword}`);
-                        }
-
-                        return match;
-                      },
-                    );
-
-                    if (keywordMatch) {
-                      foundMatch = true;
-
-                      if (conditionData.text) {
-                        responseText = conditionData.text;
-                        responseButtonId = conditionId;
-
-                        if (conditionData.buttons) {
-                          // Create interactive response with buttons
-                          const buttons = Object.entries(
-                            conditionData.buttons,
-                          ).map(([id, buttonData]: [string, Button]) => ({
-                            id,
-                            title: buttonData.title,
-                          }));
-                          payload = createInteractiveMessage(
-                            phoneNumber,
-                            conditionData.text,
-                            buttons,
-                          );
-                        } else {
-                          // Simple text response
-                          payload = createTextMessage(
-                            phoneNumber,
-                            conditionData.text,
-                          );
-                        }
-                      }
-                      break;
-                    }
-                  }
-                }
-
-                if (!foundMatch) {
-                  console.log("No match found, sending default response");
-
-                  const defaultCondition = conditionsData["default"];
-                  if (defaultCondition && defaultCondition.text) {
-                    responseText =
-                      "Lo siento, no entiendo tu mensaje. \n" +
-                      defaultCondition.text;
-                    responseButtonId = "default";
-
-                    if (defaultCondition.buttons) {
-                      const buttons = Object.entries(
-                        defaultCondition.buttons,
-                      ).map(([id, buttonData]: [string, Button]) => ({
-                        id,
-                        title: buttonData.title,
-                      }));
-
-                      payload = createInteractiveMessage(
-                        phoneNumber,
-                        responseText,
-                        buttons,
-                      );
-                    } else {
-                      payload = createTextMessage(phoneNumber, responseText);
-                    }
-                  }
-                }
-              }
-            }
-            if (payload) {
-              console.log(
-                "Sending message payload:",
-                JSON.stringify(payload, null, 2),
-              );
-
-              // Save bot response to chat history
-              await chatMessageRef.push({
-                text: responseText,
-                timestamp: Date.now(),
-                isUser: false,
-                buttonId: responseButtonId || null,
-              });
-
-              await sendMessage(
-                payload,
-                settingsData.phone_number_id,
-                settingsData.access_token,
-              );
+              payload = condition.buttons
+                ? createInteractiveMessage(phoneNumber, condition.text ?? "",
+                  Object.entries(condition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+                : createTextMessage(phoneNumber, condition.text ?? "");
+              break;
             }
           }
+
+          if (!foundMatch && conditions["default"]) {
+            // No match found - fallback
+            const defaultCondition = conditions["default"];
+            responseText = "Lo siento, no entiendo tu mensaje. \n" + (defaultCondition.text ?? "");
+            responseButtonId = "default";
+
+            payload = defaultCondition.buttons
+              ? createInteractiveMessage(phoneNumber, responseText,
+                Object.entries(defaultCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+              : createTextMessage(phoneNumber, responseText);
+          }
+        }
+
+        if (payload) {
+          // Save bot response
+          await chatRef.push({
+            text: responseText,
+            timestamp: Date.now(),
+            isUser: false,
+            buttonId: responseButtonId || null,
+          });
+
+          await sendMessage(payload, settings.phone_number_id, settings.access_token);
         }
       }
     }
-  } catch (error) {
+
+    return new Response("EVENT_RECEIVED", { status: 200 });
+  } catch (error: unknown) {
     console.error("Error processing webhook:", error);
     return new Response("Error processing webhook", { status: 500 });
   }
-  return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
-/**
- * Creates an interactive message payload for the WhatsApp Business API.
- *
- * @param {string} to - The recipient's phone number.
- * @param {string} body - The message body text.
- * @param {Array<{ id: string; title: string }>} buttons - An array of button objects.
- * @returns {Record<string, any>} - The message payload.
- */
-function createInteractiveMessage(
-  to: string,
-  body: string,
-  buttons: {
-    id: string;
-    title: string;
-  }[],
-): Record<string, any> {
+// Helper functions
+function createInteractiveMessage(to: string, body: string, buttons: ButtonInfo[]) {
   return {
     messaging_product: "whatsapp",
     to,
@@ -364,126 +208,82 @@ function createInteractiveMessage(
       type: "button",
       body: { text: body },
       action: {
-        buttons: buttons.map((buttonData) => ({
+        buttons: buttons.map(btn => ({
           type: "reply",
           reply: {
-            id: buttonData.id,
-            title:
-              buttonData.title.length > 20
-                ? buttonData.title.substring(0, 20)
-                : buttonData.title,
-          },
-        })),
-      },
-    },
+            id: btn.id,
+            title: btn.title.length > 20 ? btn.title.substring(0, 20) : btn.title
+          }
+        }))
+      }
+    }
   };
 }
 
-/**
- * Creates a text message payload for the WhatsApp Business API.
- *
- * @param {string} to - The recipient's phone number.
- * @param {string} text - The message text.
- * @returns {Record<string, any>} - The message payload.
- */
-function createTextMessage(to: string, text: string): Record<string, any> {
+function createTextMessage(to: string, text: string) {
   return {
     messaging_product: "whatsapp",
     to,
     type: "text",
-    text: { body: text },
+    text: { body: text }
   };
 }
 
 async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
   try {
     const statusRef = getDatabase(app).ref(`chatbot/bot-status/${phoneNumber}`);
-    const snapshot = await statusRef.once("value");
-    const statusData = snapshot.val();
+    const status = await statusRef.once("value").then(snap => snap.val());
 
-    if (!statusData) return true; // Default to enabled if no record
-
-    if (statusData.enabled === false) {
-      // Check if expiration time has passed
-      if (statusData.expiration && statusData.expiration < Date.now()) {
-        // Auto-enable the bot and return true
+    if (!status) return true;
+    if (status.enabled === false) {
+      if (status.expiration && status.expiration < Date.now()) {
         await statusRef.update({ enabled: true, expiration: null });
         return true;
       }
-      return false; // Bot is disabled and expiration time hasn't passed
+      return false;
     }
-
-    return true; // Bot is explicitly enabled
-  } catch (error) {
+    return true;
+  } catch (error: unknown) {
     console.error("Error checking bot status:", error);
-    return true; // Default to enabled in case of errors
+    return true;
   }
 }
 
-/**
- * Checks if we should send the default message based on chat history
- * @param {string} phoneNumber - The user's phone number
- * @param {any} chatsRef - Reference to the chats in the database
- * @returns {Promise<boolean>} - True if default message should be sent
- */
-async function checkIfShouldSendDefault(
-  phoneNumber: string,
-  chatsRef: any,
-): Promise<boolean> {
+async function checkIfShouldSendDefault(phoneNumber: string, chatsRef: any): Promise<boolean> {
   try {
-    // Get the user's chat history
-    const chatRef = chatsRef.child(phoneNumber);
-    const snapshot = await chatRef
+    const snapshot = await chatsRef.child(phoneNumber)
       .orderByChild("timestamp")
       .limitToLast(1)
       .once("value");
+
     const chatData = snapshot.val();
+    if (!chatData) return true;
 
-    // If no chat history exists, it's a new user
-    if (!chatData) {
-      return true;
-    }
-
-    // Check if 12 hours (43,200,000 ms) have passed since the last message
     const lastMessageKey = Object.keys(chatData)[0];
-    const lastMessageTimestamp = chatData[lastMessageKey].timestamp;
-    const currentTime = Date.now();
-    const timeDifference = currentTime - lastMessageTimestamp;
-    const twelveHoursInMs = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+    const lastMessageTime = chatData[lastMessageKey].timestamp;
+    const twelveHoursInMs = 12 * 60 * 60 * 1000;
 
-    return timeDifference > twelveHoursInMs;
-  } catch (error) {
+    return (Date.now() - lastMessageTime) > twelveHoursInMs;
+  } catch (error: unknown) {
     console.error("Error checking chat history:", error);
-    return false; // Default to normal behavior on error
+    return false;
   }
 }
 
-/**
- * Sends a message using the WhatsApp Business API.
- *
- * @param {Record<string, any>} payload - The message payload to send.
- * @param {string} facebookPhoneNumberId - The phone number ID for the WhatsApp Business account.
- * @param {string} facebookAccessToken - The access token for the WhatsApp Business API.
- * @returns {Promise<void>} - A promise that resolves when the message is sent.
- */
-async function sendMessage(
-  payload: Record<string, any>,
-  facebookPhoneNumberId: string,
-  facebookAccessToken: string,
-): Promise<void> {
-  const url = `https://graph.facebook.com/v22.0/${facebookPhoneNumberId}/messages`;
-
+async function sendMessage(payload: any, phoneNumberId: string, accessToken: string): Promise<void> {
   try {
-    await axios.post(url, payload, {
-      headers: {
-        Authorization: `Bearer ${facebookAccessToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (error: any) {
-    console.error(
-      "Error al enviar mensaje:",
-      error.response?.data || error.message,
+    await axios.post(
+      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        }
+      }
     );
+  } catch (error: unknown) {
+    const err = error as any;
+    console.error("Error al enviar mensaje:", err.response?.data || (err instanceof Error ? err.message : String(err)));
   }
 }
