@@ -125,10 +125,10 @@ export async function POST({
             const phoneNumber = message.from;
             const text = message.text?.body || "";
             const buttonPayload = message?.interactive?.button_reply?.id;
-            console.log("buttonPayload recibido:", buttonPayload);
-            let payload;
-            let responseText = "";
-            let responseButtonId = "";
+            const shouldSendDefault = await checkIfShouldSendDefault(
+              phoneNumber,
+              chatsRef,
+            );
 
             // Save user message to chat history
             const timestamp = Date.now();
@@ -148,163 +148,168 @@ export async function POST({
               return new Response(JSON.stringify({ success: true }));
             }
 
-            // Access the conditions data
-            console.log("Conditions keys:", Object.keys(conditionsData));
+            let payload;
+            let responseText = "";
+            let responseButtonId = "";
 
-            // First check if we have a direct button match (higher priority)
-            if (buttonPayload && conditionsData[buttonPayload]) {
-              console.log(`Found button match for payload: ${buttonPayload}`);
-              const matchedCondition = conditionsData[buttonPayload];
+            if (shouldSendDefault && conditionsData["default"]) {
+              console.log(
+                "Sending default message due to time gap or new user",
+              );
+              const defaultCondition = conditionsData["default"];
 
-              if (matchedCondition.text) {
-                responseText = matchedCondition.text;
-                responseButtonId = buttonPayload;
+              if (defaultCondition.text) {
+                responseText = defaultCondition.text;
+                responseButtonId = "default";
 
-                if (matchedCondition.buttons) {
-                  // Create interactive response with buttons
-                  const buttons = Object.entries(matchedCondition.buttons).map(
+                if (defaultCondition.buttons) {
+                  const buttons = Object.entries(defaultCondition.buttons).map(
                     ([id, buttonData]: [string, Button]) => ({
                       id,
                       title: buttonData.title,
                     }),
                   );
-
                   payload = createInteractiveMessage(
                     phoneNumber,
-                    matchedCondition.text,
+                    defaultCondition.text,
                     buttons,
                   );
                 } else {
-                  // Simple text response
                   payload = createTextMessage(
                     phoneNumber,
-                    matchedCondition.text,
+                    defaultCondition.text,
                   );
                 }
               }
             } else {
-              // Check for keyword matches
-              let foundMatch = false;
-              console.log(`Checking for keyword match with text: "${text}"`);
+              // First check if we have a direct button match (higher priority)
+              if (buttonPayload && conditionsData[buttonPayload]) {
+                console.log(`Found button match for payload: ${buttonPayload}`);
+                const matchedCondition = conditionsData[buttonPayload];
 
-              for (const [
-                conditionId,
-                conditionData,
-              ] of Object.entries<Condition>(conditionsData)) {
-                if (
-                  conditionData.keywords &&
-                  Array.isArray(conditionData.keywords)
-                ) {
-                  console.log(
-                    `Condition ${conditionId} has keywords:`,
-                    conditionData.keywords,
-                  );
+                if (matchedCondition.text) {
+                  responseText = matchedCondition.text;
+                  responseButtonId = buttonPayload;
 
-                  const keywordMatch = conditionData.keywords.some(
-                    (keyword: string) => {
-                      const normalizedKeyword = keyword.toLowerCase();
-                      const normalizedText = text.toLowerCase();
-                      const match =
-                        normalizedText.includes(normalizedKeyword) ||
-                        (normalizedKeyword.includes(normalizedText) &&
-                          normalizedText.length > 3);
+                  if (matchedCondition.buttons) {
+                    // Create interactive response with buttons
+                    const buttons = Object.entries(
+                      matchedCondition.buttons,
+                    ).map(([id, buttonData]: [string, Button]) => ({
+                      id,
+                      title: buttonData.title,
+                    }));
 
-                      if (match) {
-                        console.log(`Match found with keyword: ${keyword}`);
-                      }
-
-                      return match;
-                    },
-                  );
-
-                  if (keywordMatch) {
-                    foundMatch = true;
-
-                    if (conditionData.text) {
-                      responseText = conditionData.text;
-                      responseButtonId = conditionId;
-
-                      if (conditionData.buttons) {
-                        // Create interactive response with buttons
-                        const buttons = Object.entries(
-                          conditionData.buttons,
-                        ).map(([id, buttonData]: [string, Button]) => ({
-                          id,
-                          title: buttonData.title,
-                        }));
-                        payload = createInteractiveMessage(
-                          phoneNumber,
-                          conditionData.text,
-                          buttons,
-                        );
-                      } else {
-                        // Simple text response
-                        payload = createTextMessage(
-                          phoneNumber,
-                          conditionData.text,
-                        );
-                      }
-                    }
-                    break;
+                    payload = createInteractiveMessage(
+                      phoneNumber,
+                      matchedCondition.text,
+                      buttons,
+                    );
+                  } else {
+                    // Simple text response
+                    payload = createTextMessage(
+                      phoneNumber,
+                      matchedCondition.text,
+                    );
                   }
                 }
-              }
+              } else {
+                // Check for keyword matches
+                let foundMatch = false;
+                console.log(`Checking for keyword match with text: "${text}"`);
 
-              if (!foundMatch) {
-                console.log("No match found, using default condition");
+                for (const [
+                  conditionId,
+                  conditionData,
+                ] of Object.entries<Condition>(conditionsData)) {
+                  if (
+                    conditionData.keywords &&
+                    Array.isArray(conditionData.keywords)
+                  ) {
+                    console.log(
+                      `Condition ${conditionId} has keywords:`,
+                      conditionData.keywords,
+                    );
 
-                // Use the default condition if it exists
-                if (conditionsData["default"]) {
-                  const defaultCondition = conditionsData["default"];
+                    const keywordMatch = conditionData.keywords.some(
+                      (keyword: string) => {
+                        const normalizedKeyword = keyword.toLowerCase();
+                        const normalizedText = text.toLowerCase();
+                        const match =
+                          normalizedText.includes(normalizedKeyword) ||
+                          (normalizedKeyword.includes(normalizedText) &&
+                            normalizedText.length > 3);
 
-                  if (defaultCondition.text) {
-                    responseText = defaultCondition.text;
-                    responseButtonId = "default";
+                        if (match) {
+                          console.log(`Match found with keyword: ${keyword}`);
+                        }
 
-                    if (defaultCondition.buttons) {
-                      // Create interactive response with buttons
-                      const buttons = Object.entries(
-                        defaultCondition.buttons,
-                      ).map(([id, buttonData]: [string, Button]) => ({
-                        id,
-                        title: buttonData.title,
-                      }));
-                      payload = createInteractiveMessage(
-                        phoneNumber,
-                        defaultCondition.text,
-                        buttons,
-                      );
-                    } else {
-                      // Simple text response
-                      payload = createTextMessage(
-                        phoneNumber,
-                        defaultCondition.text,
-                      );
+                        return match;
+                      },
+                    );
+
+                    if (keywordMatch) {
+                      foundMatch = true;
+
+                      if (conditionData.text) {
+                        responseText = conditionData.text;
+                        responseButtonId = conditionId;
+
+                        if (conditionData.buttons) {
+                          // Create interactive response with buttons
+                          const buttons = Object.entries(
+                            conditionData.buttons,
+                          ).map(([id, buttonData]: [string, Button]) => ({
+                            id,
+                            title: buttonData.title,
+                          }));
+                          payload = createInteractiveMessage(
+                            phoneNumber,
+                            conditionData.text,
+                            buttons,
+                          );
+                        } else {
+                          // Simple text response
+                          payload = createTextMessage(
+                            phoneNumber,
+                            conditionData.text,
+                          );
+                        }
+                      }
+                      break;
                     }
                   }
                 }
+
+                if (!foundMatch) {
+                  console.log("No match found");
+
+                  // Manda un mensaje que indique que no entiende el mensaje
+                  responseText = "Lo siento, no entiendo tu mensaje.";
+                  payload = createTextMessage(phoneNumber, responseText);
+                }
               }
-            }
 
-            if (payload) {
-              console.log(
-                "Sending message payload:",
-                JSON.stringify(payload, null, 2),
-              );
+              if (payload) {
+                console.log(
+                  "Sending message payload:",
+                  JSON.stringify(payload, null, 2),
+                );
 
-              // Save bot response to chat history
-              await chatMessageRef.push({
-                text: responseText,
-                timestamp: Date.now(),
-                isUser: false,
-                buttonId: responseButtonId || null,
-              });
+                // Save bot response to chat history
+                await chatMessageRef.push({
+                  text: responseText,
+                  timestamp: Date.now(),
+                  isUser: false,
+                  buttonId: responseButtonId || null,
+                });
 
-              await sendMessage(
-                payload,
-                settingsData.phone_number_id,
-                settingsData.access_token,
-              );
+                await sendMessage(
+                  payload,
+                  settingsData.phone_number_id,
+                  settingsData.access_token,
+                );
+              }
             }
           }
         }
@@ -394,6 +399,44 @@ async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
   } catch (error) {
     console.error("Error checking bot status:", error);
     return true; // Default to enabled in case of errors
+  }
+}
+
+/**
+ * Checks if we should send the default message based on chat history
+ * @param {string} phoneNumber - The user's phone number
+ * @param {any} chatsRef - Reference to the chats in the database
+ * @returns {Promise<boolean>} - True if default message should be sent
+ */
+async function checkIfShouldSendDefault(
+  phoneNumber: string,
+  chatsRef: any,
+): Promise<boolean> {
+  try {
+    // Get the user's chat history
+    const chatRef = chatsRef.child(phoneNumber);
+    const snapshot = await chatRef
+      .orderByChild("timestamp")
+      .limitToLast(1)
+      .once("value");
+    const chatData = snapshot.val();
+
+    // If no chat history exists, it's a new user
+    if (!chatData) {
+      return true;
+    }
+
+    // Check if 12 hours (43,200,000 ms) have passed since the last message
+    const lastMessageKey = Object.keys(chatData)[0];
+    const lastMessageTimestamp = chatData[lastMessageKey].timestamp;
+    const currentTime = Date.now();
+    const timeDifference = currentTime - lastMessageTimestamp;
+    const twelveHoursInMs = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+
+    return timeDifference > twelveHoursInMs;
+  } catch (error) {
+    console.error("Error checking chat history:", error);
+    return false; // Default to normal behavior on error
   }
 }
 
