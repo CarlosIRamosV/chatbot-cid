@@ -159,7 +159,8 @@ export async function POST({
               const defaultCondition = conditionsData["default"];
 
               if (defaultCondition.text) {
-                responseText = defaultCondition.text;
+                responseText =
+                  "Bienvenido a nuestro servicio. \n" + defaultCondition.text;
                 responseButtonId = "default";
 
                 if (defaultCondition.buttons) {
@@ -171,14 +172,11 @@ export async function POST({
                   );
                   payload = createInteractiveMessage(
                     phoneNumber,
-                    defaultCondition.text,
+                    responseText,
                     buttons,
                   );
                 } else {
-                  payload = createTextMessage(
-                    phoneNumber,
-                    defaultCondition.text,
-                  );
+                  payload = createTextMessage(phoneNumber, responseText);
                 }
               }
             } else {
@@ -282,11 +280,32 @@ export async function POST({
                 }
 
                 if (!foundMatch) {
-                  console.log("No match found");
+                  console.log("No match found, sending default response");
 
-                  // Manda un mensaje que indique que no entiende el mensaje
-                  responseText = "Lo siento, no entiendo tu mensaje.";
-                  payload = createTextMessage(phoneNumber, responseText);
+                  const defaultCondition = conditionsData["default"];
+                  if (defaultCondition && defaultCondition.text) {
+                    responseText =
+                      "Lo siento, no entiendo tu mensaje. \n" +
+                      defaultCondition.text;
+                    responseButtonId = "default";
+
+                    if (defaultCondition.buttons) {
+                      const buttons = Object.entries(
+                        defaultCondition.buttons,
+                      ).map(([id, buttonData]: [string, Button]) => ({
+                        id,
+                        title: buttonData.title,
+                      }));
+
+                      payload = createInteractiveMessage(
+                        phoneNumber,
+                        responseText,
+                        buttons,
+                      );
+                    } else {
+                      payload = createTextMessage(phoneNumber, responseText);
+                    }
+                  }
                 }
               }
             }
