@@ -326,7 +326,7 @@ async function checkIfShouldSendDefault(
 
     const messages = Object.values(chatData) as ChatMessage[];
 
-    // If only one message exists and it's from the user, send default
+    // If only one message exists, and it's from the user, send default
     if (messages.length === 1 && messages[0].isUser) return true;
 
     // If we have at least 2 messages, check if the last bot response was the welcome message
