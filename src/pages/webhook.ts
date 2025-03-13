@@ -24,6 +24,13 @@ interface Change {
   };
 }
 
+interface ChatMessage {
+  text: string;
+  timestamp: number;
+  isUser: boolean;
+  buttonId: string | null;
+}
+
 interface Message {
   from: string;
   text?: { body: string };
@@ -304,27 +311,52 @@ async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
 
 async function checkIfShouldSendDefault(
   phoneNumber: string,
-  chatsRef: any,
+  chatsRef: any, // Keeping any for Firebase ref since it's passed from outside
 ): Promise<boolean> {
   try {
     const snapshot = await chatsRef
       .child(phoneNumber)
       .orderByChild("timestamp")
-      .limitToLast(1)
+      .limitToLast(2)
       .once("value");
 
     const chatData = snapshot.val();
     // If no chat data exists, this is a new user - send default message
     if (!chatData) return true;
 
-    const lastMessageKey = Object.keys(chatData)[0];
-    const lastMessage = chatData[lastMessageKey];
-    const lastMessageTime = lastMessage.timestamp;
-    const twelveHoursInMs = 12 * 60 * 60 * 1000;
+    const messages = Object.values(chatData) as ChatMessage[];
 
-    // Send default if last message was over 12 hours ago
-    // OR if the last message was from the user (not the bot)
-    return Date.now() - lastMessageTime > twelveHoursInMs || lastMessage.isUser;
+    // If only one message exists and it's from the user, send default
+    if (messages.length === 1 && messages[0].isUser) return true;
+
+    // If we have at least 2 messages, check if the last bot response was the welcome message
+    if (messages.length >= 2) {
+      const sortedMessages = messages.sort(
+        (a: ChatMessage, b: ChatMessage) => a.timestamp - b.timestamp,
+      );
+      const lastUserMsg = sortedMessages.findLast(
+        (msg: ChatMessage) => msg.isUser,
+      );
+      const lastBotMsg = sortedMessages.findLast(
+        (msg: ChatMessage) => !msg.isUser,
+      );
+
+      // If bot's last message was NOT default and 12+ hours have passed since last message
+      if (lastBotMsg && lastBotMsg.buttonId !== "default") {
+        const twelveHoursInMs = 12 * 60 * 60 * 1000;
+        return (
+          Date.now() -
+            Math.max(lastUserMsg?.timestamp || 0, lastBotMsg.timestamp) >
+          twelveHoursInMs
+        );
+      }
+
+      // Don't send default message if the last bot message was already the default
+      return lastBotMsg?.buttonId !== "default";
+    }
+
+    // Default to true for other scenarios to ensure users get a response
+    return true;
   } catch (error: unknown) {
     console.error("Error checking chat history:", error);
     // On error, default to true to ensure users get a response
