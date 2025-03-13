@@ -314,16 +314,21 @@ async function checkIfShouldSendDefault(
       .once("value");
 
     const chatData = snapshot.val();
+    // If no chat data exists, this is a new user - send default message
     if (!chatData) return true;
 
     const lastMessageKey = Object.keys(chatData)[0];
-    const lastMessageTime = chatData[lastMessageKey].timestamp;
+    const lastMessage = chatData[lastMessageKey];
+    const lastMessageTime = lastMessage.timestamp;
     const twelveHoursInMs = 12 * 60 * 60 * 1000;
 
-    return Date.now() - lastMessageTime > twelveHoursInMs;
+    // Send default if last message was over 12 hours ago
+    // OR if the last message was from the user (not the bot)
+    return Date.now() - lastMessageTime > twelveHoursInMs || lastMessage.isUser;
   } catch (error: unknown) {
     console.error("Error checking chat history:", error);
-    return false;
+    // On error, default to true to ensure users get a response
+    return true;
   }
 }
 
