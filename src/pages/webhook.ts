@@ -65,7 +65,9 @@ export async function GET({ request }: RequestParams): Promise<Response> {
     const challenge = searchParams.get("hub.challenge");
 
     if (mode === "subscribe") {
-      const settings = await getSettingsRef().once("value").then(snap => snap.val() as Settings);
+      const settings = await getSettingsRef()
+        .once("value")
+        .then((snap) => snap.val() as Settings);
       if (token === settings.verification_token) {
         return new Response(challenge, { status: 200 });
       }
@@ -78,11 +80,19 @@ export async function GET({ request }: RequestParams): Promise<Response> {
 }
 
 // POST endpoint for handling webhook messages
-export async function POST({ request }: { request: Request }): Promise<Response> {
+export async function POST({
+  request,
+}: {
+  request: Request;
+}): Promise<Response> {
   try {
     const data = await request.json();
-    const conditions = await getConditionsRef().once("value").then(snap => snap.val() as Conditions);
-    const settings = await getSettingsRef().once("value").then(snap => snap.val() as Settings);
+    const conditions = await getConditionsRef()
+      .once("value")
+      .then((snap) => snap.val() as Conditions);
+    const settings = await getSettingsRef()
+      .once("value")
+      .then((snap) => snap.val() as Settings);
     const chatsRef = getChatsRef();
 
     if (!data.entry) return new Response("EVENT_RECEIVED", { status: 200 });
@@ -107,7 +117,7 @@ export async function POST({ request }: { request: Request }): Promise<Response>
         });
 
         // Check if bot is enabled
-        if (!await checkIfBotEnabled(phoneNumber)) {
+        if (!(await checkIfBotEnabled(phoneNumber))) {
           console.log("Bot is disabled for this phone number.");
           continue;
         }
@@ -117,15 +127,26 @@ export async function POST({ request }: { request: Request }): Promise<Response>
         let responseButtonId = "";
 
         // Determine response based on conditions
-        if (await checkIfShouldSendDefault(phoneNumber, chatsRef) && conditions["default"]) {
+        if (
+          (await checkIfShouldSendDefault(phoneNumber, chatsRef)) &&
+          conditions["default"]
+        ) {
           // Default welcome message
           const defaultCondition = conditions["default"];
-          responseText = "Bienvenido a nuestro servicio. \n" + (defaultCondition.text ?? "");
+          responseText =
+            "¡Bienvenido/a al Centro de Investigación y Docencia (CID)! \nSomos una institución dedicada a la formación de docentes. \n¿En qué podemos ayudarte hoy? \n" +
+            (defaultCondition.text ?? "");
           responseButtonId = "default";
 
           payload = defaultCondition.buttons
-            ? createInteractiveMessage(phoneNumber, responseText,
-              Object.entries(defaultCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+            ? createInteractiveMessage(
+                phoneNumber,
+                responseText,
+                Object.entries(defaultCondition.buttons).map(([id, btn]) => ({
+                  id,
+                  title: btn.title,
+                })),
+              )
             : createTextMessage(phoneNumber, responseText);
         } else if (buttonPayload && conditions[buttonPayload]) {
           // Button response
@@ -134,8 +155,14 @@ export async function POST({ request }: { request: Request }): Promise<Response>
           responseButtonId = buttonPayload;
 
           payload = matchedCondition.buttons
-            ? createInteractiveMessage(phoneNumber, matchedCondition.text ?? "",
-              Object.entries(matchedCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+            ? createInteractiveMessage(
+                phoneNumber,
+                matchedCondition.text ?? "",
+                Object.entries(matchedCondition.buttons).map(([id, btn]) => ({
+                  id,
+                  title: btn.title,
+                })),
+              )
             : createTextMessage(phoneNumber, matchedCondition.text ?? "");
         } else {
           // Keyword matching
@@ -144,11 +171,14 @@ export async function POST({ request }: { request: Request }): Promise<Response>
           for (const [conditionId, condition] of Object.entries(conditions)) {
             if (!condition.keywords?.length) continue;
 
-            const keywordMatch = condition.keywords.some(keyword => {
+            const keywordMatch = condition.keywords.some((keyword) => {
               const normalizedKeyword = keyword.toLowerCase();
               const normalizedText = text.toLowerCase();
-              return normalizedText.includes(normalizedKeyword) ||
-                (normalizedKeyword.includes(normalizedText) && normalizedText.length > 3);
+              return (
+                normalizedText.includes(normalizedKeyword) ||
+                (normalizedKeyword.includes(normalizedText) &&
+                  normalizedText.length > 3)
+              );
             });
 
             if (keywordMatch) {
@@ -157,8 +187,14 @@ export async function POST({ request }: { request: Request }): Promise<Response>
               responseButtonId = conditionId;
 
               payload = condition.buttons
-                ? createInteractiveMessage(phoneNumber, condition.text ?? "",
-                  Object.entries(condition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+                ? createInteractiveMessage(
+                    phoneNumber,
+                    condition.text ?? "",
+                    Object.entries(condition.buttons).map(([id, btn]) => ({
+                      id,
+                      title: btn.title,
+                    })),
+                  )
                 : createTextMessage(phoneNumber, condition.text ?? "");
               break;
             }
@@ -167,12 +203,20 @@ export async function POST({ request }: { request: Request }): Promise<Response>
           if (!foundMatch && conditions["default"]) {
             // No match found - fallback
             const defaultCondition = conditions["default"];
-            responseText = "Lo siento, no entiendo tu mensaje. \n" + (defaultCondition.text ?? "");
+            responseText =
+              "Lo siento, no entiendo tu mensaje. \n" +
+              (defaultCondition.text ?? "");
             responseButtonId = "default";
 
             payload = defaultCondition.buttons
-              ? createInteractiveMessage(phoneNumber, responseText,
-                Object.entries(defaultCondition.buttons).map(([id, btn]) => ({ id, title: btn.title })))
+              ? createInteractiveMessage(
+                  phoneNumber,
+                  responseText,
+                  Object.entries(defaultCondition.buttons).map(([id, btn]) => ({
+                    id,
+                    title: btn.title,
+                  })),
+                )
               : createTextMessage(phoneNumber, responseText);
           }
         }
@@ -186,7 +230,11 @@ export async function POST({ request }: { request: Request }): Promise<Response>
             buttonId: responseButtonId || null,
           });
 
-          await sendMessage(payload, settings.phone_number_id, settings.access_token);
+          await sendMessage(
+            payload,
+            settings.phone_number_id,
+            settings.access_token,
+          );
         }
       }
     }
@@ -199,7 +247,11 @@ export async function POST({ request }: { request: Request }): Promise<Response>
 }
 
 // Helper functions
-function createInteractiveMessage(to: string, body: string, buttons: ButtonInfo[]) {
+function createInteractiveMessage(
+  to: string,
+  body: string,
+  buttons: ButtonInfo[],
+) {
   return {
     messaging_product: "whatsapp",
     to,
@@ -208,15 +260,16 @@ function createInteractiveMessage(to: string, body: string, buttons: ButtonInfo[
       type: "button",
       body: { text: body },
       action: {
-        buttons: buttons.map(btn => ({
+        buttons: buttons.map((btn) => ({
           type: "reply",
           reply: {
             id: btn.id,
-            title: btn.title.length > 20 ? btn.title.substring(0, 20) : btn.title
-          }
-        }))
-      }
-    }
+            title:
+              btn.title.length > 20 ? btn.title.substring(0, 20) : btn.title,
+          },
+        })),
+      },
+    },
   };
 }
 
@@ -225,14 +278,14 @@ function createTextMessage(to: string, text: string) {
     messaging_product: "whatsapp",
     to,
     type: "text",
-    text: { body: text }
+    text: { body: text },
   };
 }
 
 async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
   try {
     const statusRef = getDatabase(app).ref(`chatbot/bot-status/${phoneNumber}`);
-    const status = await statusRef.once("value").then(snap => snap.val());
+    const status = await statusRef.once("value").then((snap) => snap.val());
 
     if (!status) return true;
     if (status.enabled === false) {
@@ -249,9 +302,13 @@ async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
   }
 }
 
-async function checkIfShouldSendDefault(phoneNumber: string, chatsRef: any): Promise<boolean> {
+async function checkIfShouldSendDefault(
+  phoneNumber: string,
+  chatsRef: any,
+): Promise<boolean> {
   try {
-    const snapshot = await chatsRef.child(phoneNumber)
+    const snapshot = await chatsRef
+      .child(phoneNumber)
       .orderByChild("timestamp")
       .limitToLast(1)
       .once("value");
@@ -263,14 +320,18 @@ async function checkIfShouldSendDefault(phoneNumber: string, chatsRef: any): Pro
     const lastMessageTime = chatData[lastMessageKey].timestamp;
     const twelveHoursInMs = 12 * 60 * 60 * 1000;
 
-    return (Date.now() - lastMessageTime) > twelveHoursInMs;
+    return Date.now() - lastMessageTime > twelveHoursInMs;
   } catch (error: unknown) {
     console.error("Error checking chat history:", error);
     return false;
   }
 }
 
-async function sendMessage(payload: any, phoneNumberId: string, accessToken: string): Promise<void> {
+async function sendMessage(
+  payload: any,
+  phoneNumberId: string,
+  accessToken: string,
+): Promise<void> {
   try {
     await axios.post(
       `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
@@ -279,11 +340,14 @@ async function sendMessage(payload: any, phoneNumberId: string, accessToken: str
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-        }
-      }
+        },
+      },
     );
   } catch (error: unknown) {
     const err = error as any;
-    console.error("Error al enviar mensaje:", err.response?.data || (err instanceof Error ? err.message : String(err)));
+    console.error(
+      "Error al enviar mensaje:",
+      err.response?.data || (err instanceof Error ? err.message : String(err)),
+    );
   }
 }
