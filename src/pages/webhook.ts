@@ -62,6 +62,14 @@ interface Settings {
     accessToken: string;
     updatedAt: string;
   };
+  app_id: {
+    appId: string;
+    updatedAt: string;
+  };
+  app_secret: {
+    appSecret: string;
+    updatedAt: string;
+  };
 }
 
 interface ButtonInfo {
@@ -281,7 +289,10 @@ async function checkAndRefreshToken(settings: Settings): Promise<void> {
 
       // Request new token from Meta Graph API (would require implementation)
       // This is a placeholder for the actual token refresh logic
-      const newToken = await refreshMetaToken(accessTokenData.accessToken);
+      const newToken = await refreshMetaToken(
+        accessTokenData.accessToken,
+        settings,
+      );
 
       if (newToken) {
         // Save the new token to database
@@ -298,19 +309,25 @@ async function checkAndRefreshToken(settings: Settings): Promise<void> {
 }
 
 // Placeholder function for token refresh implementation
-async function refreshMetaToken(currentToken: string): Promise<string | null> {
+async function refreshMetaToken(
+  currentToken: string,
+  settings: Settings,
+): Promise<string | null> {
   try {
-    // This would be your implementation to refresh the token with Meta
-    // For example, calling the Graph API to extend the token
+    if (!settings.app_id?.appId || !settings.app_secret?.appSecret) {
+      console.error(
+        "Missing required authentication details for token refresh",
+      );
+      return null;
+    }
 
-    // Example implementation (would need to be replaced with actual logic):
     const response = await axios.get(
       `https://graph.facebook.com/v22.0/oauth/access_token`,
       {
         params: {
           grant_type: "fb_exchange_token",
-          client_id: process.env.FB_APP_ID,
-          client_secret: process.env.FB_APP_SECRET,
+          client_id: settings.app_id.appId,
+          client_secret: settings.app_secret.appSecret,
           fb_exchange_token: currentToken,
         },
       },
