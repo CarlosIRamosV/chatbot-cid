@@ -12,6 +12,8 @@ import AccessToken from "@components/settings/AccessToken.astro";
 import PhoneNumberId from "@components/settings/PhoneNumberId.astro";
 import Menu from "@components/Menu.astro";
 import Whitelist from "../components/settings/Whitelist.astro";
+import AppId from "../components/settings/AppId.astro";
+import AppSecret from "../components/settings/AppSecret.astro";
 ---
 
 <Layout title="Settings | Chatbot">
@@ -22,6 +24,8 @@ import Whitelist from "../components/settings/Whitelist.astro";
       <div class="space-y-4">
         <Whitelist />
         <AccessToken />
+        <AppId />
+        <AppSecret />
         <PhoneNumberId />
         <VerifyToken />
       </div>
