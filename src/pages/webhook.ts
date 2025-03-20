@@ -8,6 +8,9 @@ const getConditionsRef = () => getRef("conditions");
 const getSettingsRef = () => getRef("settings");
 const getChatsRef = () => getRef("chats");
 
+// Constants for token management
+const TOKEN_REFRESH_INTERVAL = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
 // Interfaces
 interface RequestParams {
   params: Record<string, string>;
@@ -55,7 +58,10 @@ interface Conditions {
 interface Settings {
   verification_token: string;
   phone_number_id: string;
-  access_token: string;
+  access_token: {
+    accessToken: string;
+    updatedAt: string;
+  };
 }
 
 interface ButtonInfo {
@@ -101,6 +107,9 @@ export async function POST({
       .once("value")
       .then((snap) => snap.val() as Settings);
     const chatsRef = getChatsRef();
+
+    // Check if token needs refreshing
+    await checkAndRefreshToken(settings);
 
     if (!data.entry) return new Response("EVENT_RECEIVED", { status: 200 });
 
@@ -237,10 +246,15 @@ export async function POST({
             buttonId: responseButtonId || null,
           });
 
+          // Get the latest access token in case it was refreshed
+          const currentSettings = await getSettingsRef()
+            .once("value")
+            .then((snap) => snap.val() as Settings);
+
           await sendMessage(
             payload,
-            settings.phone_number_id,
-            settings.access_token,
+            currentSettings.phone_number_id,
+            currentSettings.access_token.accessToken,
           );
         }
       }
@@ -250,6 +264,66 @@ export async function POST({
   } catch (error: unknown) {
     console.error("Error processing webhook:", error);
     return new Response("Error processing webhook", { status: 500 });
+  }
+}
+
+// Helper function to check and refresh token if needed
+async function checkAndRefreshToken(settings: Settings): Promise<void> {
+  try {
+    const accessTokenData = settings.access_token;
+    if (!accessTokenData || !accessTokenData.updatedAt) return;
+
+    const updatedAt = new Date(accessTokenData.updatedAt).getTime();
+    const needsRefresh = Date.now() - updatedAt > TOKEN_REFRESH_INTERVAL;
+
+    if (needsRefresh) {
+      console.log("Access token needs refreshing, attempting to refresh...");
+
+      // Request new token from Meta Graph API (would require implementation)
+      // This is a placeholder for the actual token refresh logic
+      const newToken = await refreshMetaToken(accessTokenData.accessToken);
+
+      if (newToken) {
+        // Save the new token to database
+        await getSettingsRef().child("access_token").set({
+          accessToken: newToken,
+          updatedAt: new Date().toISOString(),
+        });
+        console.log("Access token refreshed successfully");
+      }
+    }
+  } catch (error) {
+    console.error("Error checking or refreshing token:", error);
+  }
+}
+
+// Placeholder function for token refresh implementation
+async function refreshMetaToken(currentToken: string): Promise<string | null> {
+  try {
+    // This would be your implementation to refresh the token with Meta
+    // For example, calling the Graph API to extend the token
+
+    // Example implementation (would need to be replaced with actual logic):
+    const response = await axios.get(
+      `https://graph.facebook.com/v22.0/oauth/access_token`,
+      {
+        params: {
+          grant_type: "fb_exchange_token",
+          client_id: process.env.FB_APP_ID,
+          client_secret: process.env.FB_APP_SECRET,
+          fb_exchange_token: currentToken,
+        },
+      },
+    );
+
+    if (response.data && response.data.access_token) {
+      return response.data.access_token;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Failed to refresh Meta token:", error);
+    return null;
   }
 }
 
@@ -311,7 +385,7 @@ async function checkIfBotEnabled(phoneNumber: string): Promise<boolean> {
 
 async function checkIfShouldSendDefault(
   phoneNumber: string,
-  chatsRef: any, // Keeping any for Firebase ref since it's passed from outside
+  chatsRef: any,
 ): Promise<boolean> {
   try {
     const snapshot = await chatsRef
@@ -321,15 +395,12 @@ async function checkIfShouldSendDefault(
       .once("value");
 
     const chatData = snapshot.val();
-    // If no chat data exists, this is a new user - send default message
     if (!chatData) return true;
 
     const messages = Object.values(chatData) as ChatMessage[];
 
-    // If only one message exists, and it's from the user, send default
     if (messages.length === 1 && messages[0].isUser) return true;
 
-    // If we have at least 2 messages, check if the last bot response was the welcome message
     if (messages.length >= 2) {
       const sortedMessages = messages.sort(
         (a: ChatMessage, b: ChatMessage) => a.timestamp - b.timestamp,
@@ -341,7 +412,6 @@ async function checkIfShouldSendDefault(
         (msg: ChatMessage) => !msg.isUser,
       );
 
-      // If bot's last message was NOT default and 12+ hours have passed since last message
       if (lastBotMsg && lastBotMsg.buttonId !== "default") {
         const twelveHoursInMs = 12 * 60 * 60 * 1000;
         return (
@@ -351,15 +421,12 @@ async function checkIfShouldSendDefault(
         );
       }
 
-      // Don't send default message if the last bot message was already the default
       return lastBotMsg?.buttonId !== "default";
     }
 
-    // Default to true for other scenarios to ensure users get a response
     return true;
   } catch (error: unknown) {
     console.error("Error checking chat history:", error);
-    // On error, default to true to ensure users get a response
     return true;
   }
 }

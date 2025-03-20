@@ -3,12 +3,41 @@ import { GET } from "@api/settings/access_token";
 
 let data = "";
 let error = "";
+let expirationDate = "";
+let daysRemaining = 0;
+let needsRefresh = false;
 
 try {
   const response = await GET(Astro);
   if (response.ok) {
     const jsonData = await response.json();
     data = jsonData.accessToken || "";
+    needsRefresh = jsonData.needsRefresh || false;
+
+    // Use the expiresAt field directly if available
+    if (jsonData.expiresAt) {
+      const expirationDateObj = new Date(jsonData.expiresAt);
+      expirationDate = expirationDateObj.toLocaleDateString();
+
+      // Calculate days remaining
+      const now = new Date();
+      daysRemaining = Math.ceil(
+        (expirationDateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+      );
+    } else if (jsonData.updatedAt) {
+      // Fall back to calculating from updatedAt
+      const updatedAtDate = new Date(jsonData.updatedAt);
+      const expirationDateObj = new Date(
+        updatedAtDate.getTime() + 60 * 24 * 60 * 60 * 1000,
+      );
+      expirationDate = expirationDateObj.toLocaleDateString();
+
+      // Calculate days remaining
+      const now = new Date();
+      daysRemaining = Math.ceil(
+        (expirationDateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+      );
+    }
   } else {
     error = "Failed to fetch access token";
     console.error(error);
@@ -69,7 +98,62 @@ try {
           </svg>
         </button>
       </div>
+
+      {
+        expirationDate && (
+          <div
+            class={`mt-2 text-sm flex items-center ${
+              daysRemaining <= 7
+                ? "text-red-600"
+                : daysRemaining <= 15
+                  ? "text-orange-500"
+                  : "text-gray-600"
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 mr-1"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            {daysRemaining > 0
+              ? `Expires on ${expirationDate} (${daysRemaining} days remaining)`
+              : "Token has expired!"}
+          </div>
+        )
+      }
+
+      {
+        needsRefresh && (
+          <div class="mt-1 text-sm bg-yellow-100 text-yellow-700 p-2 rounded-md flex items-center">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 mr-1"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+            Token should be refreshed soon (over 30 days old)
+          </div>
+        )
+      }
     </div>
+
     <div class="flex justify-end space-x-3">
       <button
         is="generate-token-button"
@@ -111,33 +195,130 @@ try {
 </div>
 
 <script>
-  // Toggle visibility functionality
-  const toggleButton = document.getElementById("toggle-visibility");
-  const tokenInput = document.getElementById(
-    "access-token",
-  ) as HTMLInputElement;
-  const eyeIcon = document.getElementById("eye-icon");
+  // Toggle visibility of password field
+  document.addEventListener("DOMContentLoaded", () => {
+    const toggleButton = document.getElementById("toggle-visibility");
+    const inputField = document.getElementById("access-token");
+    const eyeIcon = document.getElementById("eye-icon");
 
-  if (toggleButton && tokenInput && eyeIcon) {
-    toggleButton.addEventListener("click", () => {
-      // Toggle between password and text type
-      tokenInput.type = tokenInput.type === "password" ? "text" : "password";
+    if (toggleButton && inputField && eyeIcon) {
+      toggleButton.addEventListener("click", () => {
+        if ((inputField as HTMLInputElement).type === "password") {
+          (inputField as HTMLInputElement).type = "text";
+          // Change to "eye-off" icon
+          eyeIcon.innerHTML = `
+            <path fill-rule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-4.38 1.651 1.651 0 000-1.185A10.004 10.004 0 009.999 3a9.956 9.956 0 00-4.744 1.194L3.28 2.22zM7.752 6.69l1.092 1.092a2.5 2.5 0 013.374 3.373l1.091 1.092a4 4 0 00-5.557-5.557z" clip-rule="evenodd" />
+            <path d="M10.748 13.93l2.523 2.523a9.987 9.987 0 01-3.27.547c-4.258 0-7.894-2.66-9.337-6.41a1.651 1.651 0 010-1.186A10.007 10.007 0 012.839 6.02L6.07 9.252a4 4 0 004.678 4.678z" />
+          `;
+        } else {
+          (inputField as HTMLInputElement).type = "password";
+          // Change back to "eye" icon
+          eyeIcon.innerHTML = `
+            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path>
+            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"></path>
+          `;
+        }
+      });
+    }
+  });
 
-      // Change the icon based on visibility state
-      if (tokenInput.type === "text") {
-        eyeIcon.innerHTML = `
-        <path fill-rule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-4.38 1.651 1.651 0 000-1.185A10.004 10.004 0 009.999 3a9.956 9.956 0 00-4.744 1.194L3.28 2.22zM7.752 6.69l1.092 1.092a2.5 2.5 0 013.374 3.373l1.091 1.092a4 4 0 00-5.557-5.557z" clip-rule="evenodd" />
-        <path d="M10.748 13.93l2.523 2.523a9.987 9.987 0 01-3.27.547c-4.258 0-7.894-2.66-9.337-6.41a1.651 1.651 0 010-1.186A10.007 10.007 0 012.839 6.02L6.07 9.252a4 4 0 004.678 4.678z" />
-      `;
-      } else {
-        eyeIcon.innerHTML = `
-        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-        <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-      `;
+  // Token update functionality
+  class AccessTokenButton extends HTMLButtonElement {
+    constructor() {
+      super();
+      this.addEventListener("click", this.handleUpdateToken);
+    }
+
+    async handleUpdateToken(e: Event) {
+      e.preventDefault();
+
+      const form = this.closest("form");
+      if (!form) return;
+
+      const input = form.querySelector("#access-token") as HTMLInputElement;
+      if (!input) return;
+
+      const accessToken = input.value.trim();
+      if (!accessToken) {
+        this.showAlert("Please enter an access token", "error");
+        return;
       }
-    });
+
+      // Show loading state
+      const originalText = this.innerHTML;
+      this.disabled = true;
+      this.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Updating...
+      `;
+
+      try {
+        const response = await fetch(`/api/settings/access_token`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ accessToken }),
+        });
+
+        if (response.ok) {
+          this.showAlert("Access token updated successfully", "success");
+
+          // Reload to show updated expiration info
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMessage =
+            errorData.message || "Failed to update access token";
+          this.showAlert(errorMessage, "error");
+        }
+      } catch (error) {
+        console.error("Error updating access token:", error);
+        this.showAlert("Network error while updating token", "error");
+      } finally {
+        // Restore button state
+        this.innerHTML = originalText;
+        this.disabled = false;
+      }
+    }
+
+    showAlert(message: string, type = "success") {
+      // Remove any existing alerts
+      const existingAlert = document.querySelector(".alert-message");
+      if (existingAlert) {
+        existingAlert.remove();
+      }
+
+      // Create new alert element
+      const alertElement = document.createElement("div");
+      alertElement.className = `alert-message fixed top-4 right-4 z-50 px-6 py-3 rounded-md shadow-lg transform transition-all duration-500 ${
+        type === "success"
+          ? "bg-green-500"
+          : type === "warning"
+            ? "bg-yellow-500"
+            : "bg-red-500"
+      } text-white`;
+      alertElement.textContent = message;
+      document.body.appendChild(alertElement);
+
+      // Remove after 3 seconds
+      setTimeout(() => {
+        alertElement.classList.add("opacity-0");
+        setTimeout(() => alertElement.remove(), 500);
+      }, 3000);
+    }
   }
 
+  customElements.define("access-token-button", AccessTokenButton, {
+    extends: "button",
+  });
+
+  // Token generation functionality
   class GenerateTokenButton extends HTMLButtonElement {
     constructor() {
       super();
@@ -150,7 +331,7 @@ try {
       const form = this.closest("form");
       if (!form) return;
 
-      const input = form.querySelector("input");
+      const input = form.querySelector("#access-token") as HTMLInputElement;
       if (!input || !input.value.trim()) {
         this.showAlert(
           "Please enter a short-lived access token first",
@@ -199,7 +380,7 @@ try {
         // Update input value with the generated token
         input.value = longLivedToken;
 
-        // Step 2: Save the generated token to the database
+        // Step 2: Automatically save the generated token to the database
         const saveRes = await fetch(`/api/settings/access_token`, {
           method: "PUT",
           headers: {
@@ -209,10 +390,12 @@ try {
         });
 
         if (saveRes.ok) {
-          this.showAlert(
-            "Long-lived token generated and saved successfully",
-            "success",
-          );
+          this.showAlert("Token generated and saved successfully", "success");
+
+          // Refresh the page to update the expiration indicator
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
         } else {
           const errorData = await saveRes.json().catch(() => ({}));
           const errorMessage =
@@ -256,92 +439,7 @@ try {
     }
   }
 
-  class UpdateButton extends HTMLButtonElement {
-    constructor() {
-      super();
-      this.addEventListener("click", this.handleUpdateToken);
-    }
-
-    async handleUpdateToken(e: Event) {
-      e.preventDefault();
-
-      const form = this.closest("form");
-      if (!form) return;
-
-      const input = form.querySelector("input");
-      if (!input || !input.value.trim()) {
-        this.showAlert("Please enter a valid access token", "error");
-        return;
-      }
-
-      const accessToken = input.value.trim();
-
-      // Show loading state
-      const originalText = this.innerHTML;
-      this.disabled = true;
-      this.innerHTML = `
-        <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        Updating...
-      `;
-
-      try {
-        const res = await fetch(`/api/settings/access_token`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ accessToken }),
-        });
-
-        if (res.ok) {
-          this.showAlert("Access token updated successfully", "success");
-        } else {
-          const errorData = await res.json().catch(() => ({}));
-          const errorMessage =
-            errorData.message || "Failed to update access token";
-          this.showAlert(errorMessage, "error");
-        }
-      } catch (error) {
-        console.error("Error updating access token:", error);
-        this.showAlert("Network error while updating token", "error");
-      } finally {
-        // Restore button state
-        this.innerHTML = originalText;
-        this.disabled = false;
-      }
-    }
-
-    showAlert(message: string, type = "success") {
-      // Remove any existing alerts
-      const existingAlert = document.querySelector(".alert-message");
-      if (existingAlert) {
-        existingAlert.remove();
-      }
-
-      // Create new alert element
-      const alertElement = document.createElement("div");
-      alertElement.className = `alert-message fixed top-4 right-4 z-50 px-6 py-3 rounded-md shadow-lg transform transition-all duration-500 ${
-        type === "success" ? "bg-green-500" : "bg-red-500"
-      } text-white`;
-      alertElement.textContent = message;
-      document.body.appendChild(alertElement);
-
-      // Remove after 3 seconds
-      setTimeout(() => {
-        alertElement.classList.add("opacity-0");
-        setTimeout(() => alertElement.remove(), 500);
-      }, 3000);
-    }
-  }
-
   customElements.define("generate-token-button", GenerateTokenButton, {
-    extends: "button",
-  });
-
-  customElements.define("access-token-button", UpdateButton, {
     extends: "button",
   });
 </script>
