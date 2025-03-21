@@ -63,7 +63,7 @@ export const POST: APIRoute = async ({ request }) => {
     await sendMessage(
       createTextMessage(phoneNumber, message),
       settings.phone_number_id,
-      settings.access_token,
+      settings.access_token.accessToken,
     );
 
     await getChatsRef().child(phoneNumber).push({
